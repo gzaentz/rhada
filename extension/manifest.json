@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "Rhada",
+  "version": "0.3.0",
+  "description": "Edits the Gmail draft you are writing, in place.",
+  "icons": { "16": "icons/icon-16.png", "32": "icons/icon-32.png", "48": "icons/icon-48.png", "128": "icons/icon-128.png" },
+  "minimum_chrome_version": "123",
+  "permissions": ["storage"],
+  "host_permissions": ["https://openrouter.ai/*"],
+  "background": { "service_worker": "dist/background.js" },
+  "content_scripts": [
+    {
+      "matches": ["https://mail.google.com/*"],
+      "js": ["dist/content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "Rhada: edit this draft",
+    "default_icon": { "16": "icons/icon-16.png", "32": "icons/icon-32.png" }
+  },
+  "options_ui": { "page": "options.html", "open_in_tab": true },
+  "commands": {
+    "_execute_action": {
+      "suggested_key": { "default": "Ctrl+Shift+E", "mac": "MacCtrl+Shift+E" },
+      "description": "Edit the current Gmail draft"
+    }
+  }
+}

@@ -1,10 +1,13 @@
 import { DEFAULTS, EDITS_KEY, FLAGS, loadEdits, loadSettings } from './settings.js';
 import { CONTRACT } from './prompt.js';
 
+// Every change saves as you go. The key and model are checked once you leave
+// the field, and a problem stays under the model until it is fixed.
 const FIELDS = Object.keys(DEFAULTS);
+const CHECKED = ['openRouterKey', 'model'];
 const form = document.getElementById('form');
-const save = document.getElementById('save');
 const status = document.getElementById('status');
+const check = document.getElementById('check');
 const kept = document.getElementById('kept');
 const forget = document.getElementById('forget');
 const restores = [...document.querySelectorAll('[data-restore]')];
@@ -12,16 +15,15 @@ const field = (name) => document.getElementById(name);
 const isFlag = (name) => FLAGS.includes(name);
 
 let saved = null;
-// An emptied text field goes back to its default. Switches are on or off.
-const read = () =>
-  Object.fromEntries(FIELDS.map((name) => [name, isFlag(name) ? field(name).checked : field(name).value.trim() || DEFAULTS[name]]));
+// An emptied text field means its default. Switches are on or off.
+const value = (name) => (isFlag(name) ? field(name).checked : field(name).value.trim() || DEFAULTS[name]);
+const read = () => Object.fromEntries(FIELDS.map((name) => [name, value(name)]));
 
 let fade = 0;
-function show(text, kind = '', { brief = false } = {}) {
+function show(text) {
   clearTimeout(fade);
   status.textContent = text;
-  status.className = kind;
-  if (brief) fade = setTimeout(() => show(''), 2500);
+  if (text === 'Saved') fade = setTimeout(() => show(''), 1600);
 }
 
 // "Restore default" shows only beside a field that differs from its default.
@@ -40,12 +42,59 @@ function fill(values) {
   sync();
 }
 
+// Saves run one after another, so a slow one never lands after a newer one.
+let queue = Promise.resolve();
+function persist() {
+  queue = queue.then(async () => {
+    const values = read();
+    if (!saved || FIELDS.every((name) => values[name] === saved[name])) return;
+    // A setting left at its default is not stored, so a better default in a
+    // later version reaches it.
+    const own = FIELDS.filter((name) => values[name] !== DEFAULTS[name]);
+    try {
+      await chrome.storage.local.set(Object.fromEntries(own.map((name) => [name, values[name]])));
+      await chrome.storage.local.remove(FIELDS.filter((name) => !own.includes(name)));
+      saved = values;
+      show('Saved');
+    } catch (err) {
+      show(`Could not save: ${err.message}`);
+    }
+  });
+  return queue;
+}
+
+let typing = 0;
+function later() {
+  clearTimeout(typing);
+  typing = setTimeout(persist, 500);
+}
+const now = () => {
+  clearTimeout(typing);
+  return persist();
+};
+
+async function verify() {
+  await now();
+  if (!saved?.openRouterKey) {
+    check.textContent = '';
+    return;
+  }
+  check.textContent = 'Checking…';
+  check.className = 'help';
+  try {
+    const result = await chrome.runtime.sendMessage({ type: 'check-key' });
+    check.textContent = result.ok ? '' : result.message.replace(/^./, (c) => c.toUpperCase());
+    check.className = result.ok ? 'help' : 'help bad';
+  } catch {
+    check.textContent = 'The key could not be checked. Leave the field again to retry.';
+    check.className = 'help bad';
+  }
+}
+
 // How many sent emails Rhada has kept to learn from.
 async function count() {
   const edits = await loadEdits();
-  kept.textContent = edits.length
-    ? `${edits.length} ${edits.length === 1 ? 'edit' : 'edits'} kept in this browser.`
-    : 'No edits kept yet.';
+  kept.textContent = edits.length ? `${edits.length} ${edits.length === 1 ? 'edit' : 'edits'} kept.` : '';
   forget.hidden = !edits.length;
 }
 
@@ -54,14 +103,16 @@ document.getElementById('contract').textContent = CONTRACT;
 loadSettings().then((settings) => {
   saved = settings;
   fill(settings);
+  if (settings.openRouterKey) verify();
+  else field('openRouterKey').focus();
 });
 count();
 chrome.storage.onChanged.addListener((changes) => {
   if (EDITS_KEY in changes) count();
-  // New lessons appear unless the field has unsaved changes of its own.
+  // New lessons appear unless you are changing them yourself.
   if ('lessons' in changes && saved) {
     const lessons = changes.lessons.newValue ?? DEFAULTS.lessons;
-    if (field('lessons').value.trim() === saved.lessons) {
+    if (document.activeElement !== field('lessons') && field('lessons').value.trim() === saved.lessons) {
       field('lessons').value = lessons;
       sync();
     }
@@ -73,55 +124,36 @@ forget.addEventListener('click', async () => {
   kept.focus();
 });
 
-form.addEventListener('input', () => {
+form.addEventListener('submit', (e) => e.preventDefault());
+form.addEventListener('input', (e) => {
   sync();
-  const now = read();
-  show(saved && FIELDS.some((name) => now[name] !== saved[name]) ? 'Unsaved changes' : '');
+  if (isFlag(e.target.id)) now();
+  else later();
 });
+// Leaving a field saves it at once and shows an emptied one at its default.
+form.addEventListener('change', (e) => {
+  const name = e.target.id;
+  if (!FIELDS.includes(name) || isFlag(name)) return;
+  if (!field(name).value.trim()) field(name).value = DEFAULTS[name];
+  sync();
+  if (CHECKED.includes(name)) verify();
+  else now();
+});
+addEventListener('pagehide', now);
 
 for (const button of restores) {
   button.addEventListener('click', () => {
     const input = field(button.dataset.restore);
     input.value = DEFAULTS[button.dataset.restore];
-    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
     input.focus();
   });
 }
 
-form.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  if (save.disabled) return;
-  save.disabled = true;
-  show('Saving…');
-  const values = read();
-  // A setting left at its default is not stored, so a better default in a
-  // later version reaches it.
-  const own = FIELDS.filter((name) => values[name] !== DEFAULTS[name]);
-  try {
-    await chrome.storage.local.set(Object.fromEntries(own.map((name) => [name, values[name]])));
-    await chrome.storage.local.remove(FIELDS.filter((name) => !own.includes(name)));
-    saved = values;
-    fill(values);
-  } catch (err) {
-    show(`Could not save: ${err.message}`, 'bad');
-    save.disabled = false;
-    return;
-  }
-  try {
-    const check = await chrome.runtime.sendMessage({ type: 'check-key' });
-    if (check.ok) show('Saved.', 'ok', { brief: true });
-    else show(`Saved, but ${check.message}`, 'bad');
-  } catch {
-    show('Saved, but the key could not be checked. Save again to retry.', 'bad');
-  } finally {
-    save.disabled = false;
-  }
-});
-
 document.addEventListener('keydown', (e) => {
   if ((e.metaKey || e.ctrlKey) && e.key === 's') {
     e.preventDefault();
-    form.requestSubmit();
+    now();
   }
 });
 

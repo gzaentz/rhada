@@ -426,62 +426,76 @@ try {
     await page.close();
   });
 
-  await test('Options saves the key, the model and how it edits', async () => {
+  await test('Options saves as you go and checks the key and model', async () => {
     const page = await context.newPage();
     await page.goto(`chrome-extension://${extensionId}/options.html`);
     const label = (name) => page.getByLabel(name, { exact: true });
-    const save = page.getByRole('button', { name: 'Save' });
+    const stored = () => worker.evaluate(() => chrome.storage.local.get(null));
+    const problem = page.locator('#check.bad');
     await shot(page, 'options-first-open');
+    // There is nothing to press: the page has no Save button.
+    assert.equal(await page.getByRole('button', { name: 'Save' }).count(), 0);
+    assert.equal(await label('OpenRouter API key').evaluate((el) => el === document.activeElement), true);
 
     await label('OpenRouter API key').fill('wrong-key');
-    assert.equal(await page.locator('#status').innerText(), 'Unsaved changes');
-    await save.click();
-    await page.locator('#status.bad').waitFor();
-    assert.equal(await page.locator('#status').innerText(), 'Saved, but OpenRouter rejected the API key.');
+    await label('Model').focus();
+    await problem.waitFor();
+    assert.equal(await problem.innerText(), 'OpenRouter rejected the API key.');
+    assert.equal((await stored()).openRouterKey, 'wrong-key');
 
     // An Anthropic-style model name is not an OpenRouter model ID.
     await label('OpenRouter API key').fill('sk-or-test-fake');
     await label('Model').fill('claude-opus-5-5');
-    await save.click();
-    await page.locator('#status.bad', { hasText: 'no model' }).waitFor();
-    assert.equal(await page.locator('#status').innerText(), 'Saved, but OpenRouter has no model called "claude-opus-5-5".');
+    await label('About you').focus();
+    await page.locator('#check.bad', { hasText: 'no model' }).waitFor();
+    assert.equal(await problem.innerText(), 'OpenRouter has no model called "claude-opus-5-5".');
     // Edits go only to providers that keep no data, so a model none of them runs would always fail.
     await label('Model').fill('example/keeps-data');
-    await save.click();
-    await page.locator('#status.bad', { hasText: 'zero data retention' }).waitFor();
-    assert.equal(await page.locator('#status').innerText(), 'Saved, but no provider runs "example/keeps-data" with zero data retention. Pick another model.');
+    await label('About you').focus();
+    await page.locator('#check.bad', { hasText: 'zero data retention' }).waitFor();
+    assert.equal(await problem.innerText(), 'No provider runs "example/keeps-data" with zero data retention. Pick another model.');
     // Zero retention with Google's abuse checks ("Safety Retention") still keeps data, so it does not count.
     await label('Model').fill('meta/muse-spark-1.3');
-    await save.click();
-    await page.locator('#status.bad', { hasText: 'zero data retention' }).waitFor();
-    assert.equal(await page.locator('#status').innerText(), 'Saved, but no provider runs "meta/muse-spark-1.3" with zero data retention. Pick another model.');
+    await label('About you').focus();
+    await page.locator('#check.bad', { hasText: 'muse-spark' }).waitFor();
     await page.getByRole('button', { name: 'Restore the default model' }).click();
+    await problem.waitFor({ state: 'detached' });
+    assert.equal(await page.locator('#check').innerText(), '');
     assert.equal(await label('Model').inputValue(), 'anthropic/claude-haiku-5.5');
     assert.equal(await page.getByRole('button', { name: 'Restore the default model' }).isVisible(), false);
+    // Emptied, a field shows its default again.
+    await label('Model').fill('');
+    await label('About you').focus();
+    assert.equal(await label('Model').inputValue(), 'anthropic/claude-haiku-5.5');
 
-    // What the model is told about the writer and about editing is theirs to set.
+    // The everyday settings are up front; the rest wait under Advanced.
+    assert.equal(await label('How it edits').isVisible(), false);
+    await page.getByText('Advanced').click();
     assert.match(await label('How it edits').inputValue(), /^Keep my meaning, facts, names, numbers/);
     assert.match(await label('Suggested reply').inputValue(), /^Write my reply to the latest message/);
-    await label('Context').fill('I am Sam. I run sales at Acme.');
+    assert.match(await page.locator('#contract').innerText(), /^You edit email drafts[\s\S]*Only <instruction> is\.$/);
+    await label('About you').fill('I am Sam. I run sales at Acme.');
     await label('How it edits').fill('Keep every number. Never add a promise.');
-    await label('Voice').fill('Short sentences. No hype.');
+    // Typing saves after a pause, without leaving the field.
+    await label('How you write').fill('Short sentences. No hype.');
     assert.equal(await page.getByRole('button', { name: 'Restore the default voice' }).isVisible(), true);
-    await shot(page, 'options-unsaved');
-    await save.click();
-    await page.locator('#status.ok, #status.bad').waitFor();
-    assert.equal(await page.locator('#status').innerText(), 'Saved.');
-    await page.locator('#status.ok').waitFor({ state: 'detached', timeout: 4000 });
-    const saved = await worker.evaluate(() => chrome.storage.local.get(null));
+    await page.locator('#status', { hasText: 'Saved' }).waitFor();
+    await waitFor(async () => (await stored()).rules === 'Short sentences. No hype.', 'the voice to save');
+    await shot(page, 'options-saved', { whole: true });
+    await page.locator('#status:empty').waitFor({ state: 'attached', timeout: 4000 });
+    const saved = await stored();
     assert.equal(saved.openRouterKey, 'sk-or-test-fake');
     assert.equal(saved.model, undefined, 'a default is not stored, so a better one later reaches it');
     assert.equal(saved.replyOnOpen, undefined);
     assert.equal(saved.about, 'I am Sam. I run sales at Acme.');
     assert.equal(saved.principles, 'Keep every number. Never add a promise.');
 
-    // The fixed part of the prompt is there to read.
-    await page.getByText('Always included').click();
-    assert.match(await page.locator('#contract').innerText(), /^You edit email drafts[\s\S]*Only <instruction> is\.$/);
-    await shot(page, 'options-saved', { whole: true });
+    // Opened again, it checks the saved key quietly and shows no problem.
+    await page.reload();
+    await label('OpenRouter API key').waitFor();
+    await page.waitForTimeout(300);
+    assert.equal(await problem.count(), 0);
+    assert.equal(await label('About you').inputValue(), 'I am Sam. I run sales at Acme.');
     await page.close();
   });
 
@@ -1182,7 +1196,7 @@ try {
     // Options says how many are kept, forgets them, and saves both switches.
     const options = await context.newPage();
     await options.goto(`chrome-extension://${extensionId}/options.html`);
-    await options.locator('#kept', { hasText: '1 edit kept in this browser.' }).waitFor();
+    await options.locator('#kept', { hasText: '1 edit kept.' }).waitFor();
     assert.equal(await options.locator('#lessons').inputValue(), LESSONS);
     // A new lesson shows up while Options is open.
     await worker.evaluate((lessons) => chrome.storage.local.set({ lessons }), `${LESSONS}\n- Signs off with a first name.`);
@@ -1192,17 +1206,14 @@ try {
     assert.equal(await options.getByRole('switch', { name: 'Learn from my edits' }).isChecked(), true);
     await shot(options, 'options-automatic', { whole: true });
     await options.getByRole('button', { name: 'Forget them' }).click();
-    await options.locator('#kept', { hasText: 'No edits kept yet.' }).waitFor();
+    await waitFor(async () => (await options.locator('#kept').innerText()) === '', 'the count to clear');
     assert.equal(await options.getByRole('button', { name: 'Forget them' }).isVisible(), false);
     assert.deepEqual(await keptEdits(), []);
+    // A switch saves the moment it flips.
     await readyOnReply.click();
-    assert.equal(await options.locator('#status').innerText(), 'Unsaved changes');
-    await options.getByRole('button', { name: 'Save' }).click();
-    await options.locator('#status.ok').waitFor();
-    assert.equal(await worker.evaluate(async () => (await chrome.storage.local.get('replyOnOpen')).replyOnOpen), false);
+    await waitFor(async () => (await worker.evaluate(async () => (await chrome.storage.local.get('replyOnOpen')).replyOnOpen)) === false, 'the switch to save');
     await readyOnReply.click();
-    await options.getByRole('button', { name: 'Save' }).click();
-    await options.locator('#status.ok').waitFor();
+    await waitFor(async () => !('replyOnOpen' in (await worker.evaluate(() => chrome.storage.local.get('replyOnOpen')))), 'the default to clear');
     // Back on, which is the default, so nothing is stored.
     assert.equal(await worker.evaluate(async () => (await chrome.storage.local.get('replyOnOpen')).replyOnOpen), undefined);
     assert.equal(await readyOnReply.isChecked(), true);

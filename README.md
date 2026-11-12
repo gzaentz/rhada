@@ -18,9 +18,9 @@ npm run build
    loaded, press the reload arrow on its card instead.
 2. Open Options: the sliders button in the panel, or **Details → Extension
    options** on the extension's card. Paste an OpenRouter API key
-   (openrouter.ai/keys) and press **Save**. Save checks the key and the model
-   and says if they work. A key made just for this, with a credit limit, is
-   safest.
+   (openrouter.ai/keys). Every setting saves as you go, and the key and model
+   are checked when you leave the field. A key made just for this, with a
+   credit limit, is safest.
 
 Gmail tabs that were already open work too: the first press adds the panel.
 
@@ -97,15 +97,16 @@ Options. Write these in your own words, as "I" and "my".
 
 | Setting | What it is for |
 | --- | --- |
-| **Context** | Who you are and what you write about. Optional. |
-| **How it edits** | What an edit must keep and what it may change. |
-| **Voice** | How you write: tone, length, words to avoid. |
-| **First pass** | The edit that runs when the panel opens on a draft with text. |
-| **Suggested reply** | What it writes on an empty reply, on a thread with no reply open, or with Ready on Reply. |
+| **About you** | Who you are and what you write about. Optional. |
+| **How you write** | Tone, length, words to avoid. |
+| **Learned from your edits** | What your sent changes show about your voice. Yours to change. |
 | **Ready on Reply** | Start writing a reply as soon as a reply box opens. On by default. |
 | **Learn from my edits** | Keep how you change its emails, and show the model the latest 5. On by default. |
+| **Advanced → How it edits** | What an edit must keep and what it may change. |
+| **Advanced → First pass** | The edit that runs when the panel opens on a draft with text. |
+| **Advanced → Suggested reply** | What it writes on an empty reply, on a thread with no reply open, or with Ready on Reply. |
 
-Empty a field and save to get its default back, or press **Restore default**.
+Empty a field to get its default back, or press **Restore default**.
 
 One short part is fixed and shown under **Always included**: the reply is the
 whole email and nothing else, the light formatting the panel can write back, a
@@ -115,7 +116,7 @@ ahead of your settings and wins where they conflict. That is what keeps
 **Replace draft** working and stops an email you received from steering the
 edit. Its text is `CONTRACT` in `src/prompt.js`.
 
-<img src="docs/options.png" width="560" alt="The Options page: connection, automatic settings, editing settings, the fixed part and the shortcut" />
+<img src="docs/options.png" width="560" alt="The Options page: key and model, your voice, two switches, and Advanced opened" />
 
 ## Model and privacy
 
@@ -141,8 +142,8 @@ edit. Its text is `CONTRACT` in `src/prompt.js`.
   with "Safety Retention", which keep requests to check for abuse, are left
   out whatever your OpenRouter privacy setting says. For the default model
   that leaves Amazon Bedrock and Google Vertex. If none is up, or the list
-  cannot be read, the request fails instead of going anywhere else. **Save**
-  in Options checks that the model has one. If OpenRouter still names another
+  cannot be read, the request fails instead of going anywhere else. Options
+  checks that the model has one. If OpenRouter still names another
   provider on the answer, the answer is thrown away unread.
 - For a second lock outside Rhada, set your OpenRouter privacy setting to
   **ZDR only**. It then covers every request made with your key.

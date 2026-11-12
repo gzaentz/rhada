@@ -1,7 +1,7 @@
 import { EDITS_KEPT, EDITS_KEY, EDITS_SENT, loadEdits, loadSettings } from './settings.js';
 import { buildMessages } from './prompt.js';
 import { lesson } from './edits.js';
-import { OpenRouterError, checkKey, costOf, endpointsFor, keepNothing, modelExists, streamChat, zdrList } from './openrouter.js';
+import { OpenRouterError, checkKey, costOf, endpointsFor, isAllowed, keepNothing, modelExists, streamChat, zdrList } from './openrouter.js';
 
 // The API key stays out of reach of scripts running inside web pages.
 chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' });
@@ -69,7 +69,8 @@ async function allowedFor(model) {
       if (zdr?.list === list) zdr = null;
     });
   }
-  return keepNothing(endpointsFor(await zdr.list, model));
+  const endpoints = endpointsFor(await zdr.list, model);
+  return { only: keepNothing(endpoints), endpoints };
 }
 
 const noProvider = (model) => `No provider runs "${model}" with zero data retention. Pick another model in Options.`;
@@ -111,7 +112,7 @@ chrome.runtime.onConnect.addListener((port) => {
     try {
       // Named one by one, so nothing goes to an endpoint that keeps data,
       // whatever the OpenRouter account allows. No such endpoint: no request.
-      const only = await allowedFor(settings.model);
+      const { only, endpoints } = await allowedFor(settings.model);
       if (!only.length) {
         post({ type: 'error', code: 'settings', message: noProvider(settings.model) });
         return;
@@ -137,6 +138,10 @@ chrome.runtime.onConnect.addListener((port) => {
         // Chrome stops an idle worker after 30 s. A message on the port while
         // the model is still thinking keeps this one awake.
         onWait: () => post({ type: 'wait' }),
+        // A second guard: an answer from any other provider is thrown away unread.
+        onProvider(name) {
+          if (!isAllowed(name, endpoints, only)) throw new Error(`OpenRouter sent this to ${name}, which is not on the zero-retention list. Nothing was shown.`);
+        },
       });
       const meta = { ms: Date.now() - started, cost: costOf(usage) };
       if (finish === 'stop') post({ type: 'done', text: text.trim(), meta });
@@ -196,7 +201,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       for (const check of [key, exists]) if (check.status === 'rejected') throw check.reason;
       if (!exists.value) return { ok: false, message: `OpenRouter has no model called "${model}".` };
       if (allowed.status === 'rejected') throw allowed.reason;
-      if (!allowed.value.length) {
+      if (!allowed.value.only.length) {
         return { ok: false, message: `no provider runs "${model}" with zero data retention. Pick another model.` };
       }
       return { ok: true };

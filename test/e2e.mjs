@@ -181,9 +181,9 @@ Thanks for thinking of us. We can't take on 20 seats right now, but I'll reach o
 // What the panel shows: links and bold rendered, not as markup.
 const rendered = (text) => text.replace(/\*\*/g, '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
 
-function sse(text, finish = 'stop') {
+function sse(text, finish = 'stop', provider = 'Amazon Bedrock') {
   const chunk = (delta, reason = null, extra = {}) =>
-    `data: ${JSON.stringify({ id: 'gen-test', object: 'chat.completion.chunk', created: 1794000000, model: 'anthropic/claude-opus-5.5', provider: 'Amazon Bedrock', choices: [{ index: 0, delta, finish_reason: reason, native_finish_reason: reason }], ...extra })}\n\n`;
+    `data: ${JSON.stringify({ id: 'gen-test', object: 'chat.completion.chunk', created: 1794000000, model: 'anthropic/claude-opus-5.5', provider, choices: [{ index: 0, delta, finish_reason: reason, native_finish_reason: reason }], ...extra })}\n\n`;
   return [
     ': OPENROUTER PROCESSING\n\n',
     chunk({ role: 'assistant', content: '', reasoning: 'Tighten it, keep the facts.' }),
@@ -248,6 +248,7 @@ try {
     // A request the extension cancelled meanwhile has nothing left to answer.
     const answer = (text, finish) => route.fulfill({ contentType: 'text/event-stream', body: sse(text, finish) }).catch(() => {});
     if (/cut it off/.test(asked)) return answer('Hi Dana, pricing for 20 seats is', null);
+    if (/elsewhere/.test(asked)) return route.fulfill({ contentType: 'text/event-stream', body: sse(SHORTER, 'stop', 'Example Cloud') }).catch(() => {});
     const reply = /Write my reply/.test(asked) ? SUGGESTED : /Decline politely/.test(asked) ? DECLINED : /two options/i.test(asked) ? OPTIONS_REPLY : /the steps/.test(asked) ? STEPS : /\bPS\b/.test(asked) ? WITH_PS : /shorter/.test(asked) ? SHORTER : POLISHED;
     return answer(reply);
   });
@@ -1185,6 +1186,20 @@ try {
     assert.equal(await page.getByRole('button', { name: 'Open Options' }).isVisible(), true);
     assert.equal(calls.length, before, 'nothing was sent');
     await worker.evaluate(() => chrome.storage.local.remove('model'));
+    await page.close();
+  });
+
+  await test('an answer from a provider outside the list is never shown', async () => {
+    const page = await open('fresh');
+    await toggle(page);
+    await page.getByRole('button', { name: 'Replace draft' }).waitFor();
+    const before = await shownText(page);
+    await page.keyboard.type('answer from elsewhere');
+    await page.keyboard.press('Enter');
+    await page.getByRole('alert').waitFor();
+    assert.equal(await page.getByRole('alert').innerText(), 'OpenRouter sent this to Example Cloud, which is not on the zero-retention list. Nothing was shown.');
+    assert.equal(await shownText(page), before, 'the last version stays');
+    await page.keyboard.press('Escape');
     await page.close();
   });
 

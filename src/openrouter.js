@@ -27,7 +27,9 @@ async function request(path, { apiKey, ...init } = {}) {
 // ("stop" when the model finished on its own) and the token and cost counts
 // OpenRouter sends on the last chunk. onText gets each piece of the answer.
 // onWait fires for network chunks that carry none: reasoning and keep-alives.
-export async function streamChat({ apiKey, signal, body, onText, onWait }) {
+// onProvider gets the provider OpenRouter names on a chunk, before any of its
+// text, and may throw to stop the stream.
+export async function streamChat({ apiKey, signal, body, onText, onWait, onProvider = () => {} }) {
   const response = await request('/chat/completions', {
     apiKey,
     signal,
@@ -38,34 +40,54 @@ export async function streamChat({ apiKey, signal, body, onText, onWait }) {
   let buffer = '';
   let finish = null;
   let usage = null;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) return { finish, usage };
-    buffer += value;
-    const lines = buffer.split('\n');
-    buffer = lines.pop();
-    let wrote = false;
-    for (const line of lines) {
-      // Skips blank separators and comments such as ": OPENROUTER PROCESSING".
-      if (!line.startsWith('data:')) continue;
-      let chunk;
-      try {
-        chunk = JSON.parse(line.slice(5));
-      } catch {
-        continue; // "[DONE]"
-      }
-      // A failure after the 200 was sent arrives as a chunk.
-      if (chunk.error) throw new OpenRouterError(Number(chunk.error.code) || 502, chunk.error.message);
-      const choice = chunk.choices?.[0];
-      if (choice?.delta?.content) {
-        onText(choice.delta.content);
-        wrote = true;
-      }
-      if (choice?.finish_reason) finish = choice.finish_reason;
-      if (chunk.usage) usage = chunk.usage;
-    }
-    if (!wrote) onWait();
+  try {
+    return await read();
+  } catch (err) {
+    reader.cancel().catch(() => {});
+    throw err;
   }
+  async function read() {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) return { finish, usage };
+      buffer += value;
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+      let wrote = false;
+      for (const line of lines) {
+        // Skips blank separators and comments such as ": OPENROUTER PROCESSING".
+        if (!line.startsWith('data:')) continue;
+        let chunk;
+        try {
+          chunk = JSON.parse(line.slice(5));
+        } catch {
+          continue; // "[DONE]"
+        }
+        // A failure after the 200 was sent arrives as a chunk.
+        if (chunk.error) throw new OpenRouterError(Number(chunk.error.code) || 502, chunk.error.message);
+        if (chunk.provider) onProvider(String(chunk.provider));
+        const choice = chunk.choices?.[0];
+        if (choice?.delta?.content) {
+          onText(choice.delta.content);
+          wrote = true;
+        }
+        if (choice?.finish_reason) finish = choice.finish_reason;
+        if (chunk.usage) usage = chunk.usage;
+      }
+      if (!wrote) onWait();
+    }
+  }
+}
+
+// Whether a provider OpenRouter names, such as "Amazon Bedrock" or
+// "amazon-bedrock", is one of the allowed endpoints. Names must match whole,
+// so "Google AI Studio" never passes for Google Vertex.
+export function isAllowed(provider, endpoints, only) {
+  const squash = (s) => String(s ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const name = squash(provider);
+  if (!name) return false;
+  const known = endpoints.filter((e) => only.includes(e.tag)).flatMap((e) => [squash(e.provider_name), squash(e.tag.split('/')[0])]);
+  return known.includes(name);
 }
 
 // What a request cost in US dollars, or null when OpenRouter did not say.

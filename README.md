@@ -129,7 +129,10 @@ edit. Its text is `CONTRACT` in `src/prompt.js`.
   out whatever your OpenRouter privacy setting says. For the default model
   that leaves Amazon Bedrock and Google Vertex. If none is up, or the list
   cannot be read, the request fails instead of going anywhere else. **Save**
-  in Options checks that the model has one.
+  in Options checks that the model has one. If OpenRouter still names another
+  provider on the answer, the answer is thrown away unread.
+- For a second lock outside Rhada, set your OpenRouter privacy setting to
+  **ZDR only**. It then covers every request made with your key.
 - OpenRouter itself keeps prompts only if you turned on prompt logging in your
   OpenRouter account, under Settings → Privacy.
 - The API key is stored in Chrome's local extension storage on this computer,

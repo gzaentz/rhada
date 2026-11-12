@@ -2,7 +2,7 @@
 // the live API on 2026-11-09; the stream follows OpenRouter's streaming docs.
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
-import { OpenRouterError, checkKey, costOf, keepNothing, modelExists, streamChat, zdrEndpoints } from '../src/openrouter.js';
+import { OpenRouterError, checkKey, costOf, isAllowed, keepNothing, modelExists, streamChat, zdrEndpoints } from '../src/openrouter.js';
 
 const realFetch = globalThis.fetch;
 afterEach(() => {
@@ -168,4 +168,33 @@ test('requests go only to endpoints with no retention of any kind', () => {
   // A bare slug would also reach a region that keeps data, so only the clean region is named.
   assert.deepEqual(keepNothing([e('google-vertex', false), e('google-vertex/global', true), e('google-vertex/us', false)]), ['google-vertex/us']);
   assert.deepEqual(keepNothing([e(undefined, false)]), []);
+});
+
+test('the provider that answered must be one of the allowed endpoints', async () => {
+  // The live list for the default model, 2026-11-11.
+  const endpoints = [
+    { provider_name: 'Amazon Bedrock', tag: 'amazon-bedrock/us-east-1' },
+    { provider_name: 'Google', tag: 'google-vertex/us' },
+    { provider_name: 'Fireworks', tag: 'fireworks' },
+  ];
+  const only = ['amazon-bedrock/us-east-1', 'google-vertex/us'];
+  for (const name of ['Amazon Bedrock', 'amazon-bedrock', 'Google', 'Google Vertex', 'google-vertex']) assert.equal(isAllowed(name, endpoints, only), true, name);
+  for (const name of ['Fireworks', 'Anthropic', 'Google AI Studio', 'Bedrock EU', '']) assert.equal(isAllowed(name, endpoints, only), false, name);
+
+  // The stream stops before any of that provider's text is used.
+  globalThis.fetch = async () => streamed(chunk({ content: 'secret' }) + chunk({}, 'stop'), [1000]);
+  const seen = [];
+  await assert.rejects(
+    streamChat({
+      apiKey: 'k',
+      body: {},
+      onText: (text) => seen.push(text),
+      onWait() {},
+      onProvider(name) {
+        if (!isAllowed(name, endpoints, only)) throw new Error(`not allowed: ${name}`);
+      },
+    }),
+    { message: 'not allowed: Anthropic' },
+  );
+  assert.deepEqual(seen, []);
 });

@@ -1,6 +1,7 @@
-import { loadSettings } from './settings.js';
+import { EDITS_KEPT, EDITS_KEY, EDITS_SENT, loadEdits, loadSettings } from './settings.js';
 import { buildMessages } from './prompt.js';
-import { OpenRouterError, checkKey, modelExists, streamChat, zdrEndpoints } from './openrouter.js';
+import { lesson } from './edits.js';
+import { OpenRouterError, checkKey, costOf, modelExists, streamChat, zdrEndpoints } from './openrouter.js';
 
 // The API key stays out of reach of scripts running inside web pages.
 chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' });
@@ -57,7 +58,15 @@ function describe(err, model) {
   return { message: `OpenRouter returned an error (${status}): ${message}` };
 }
 
-// One port per edit. Closing the port cancels the request.
+// The shortcut as Chrome has it now, such as ⌃⇧E, or '' when none is set.
+async function shortcut() {
+  const commands = await chrome.commands.getAll();
+  return commands.find((command) => command.name === '_execute_action')?.shortcut || '';
+}
+
+// One port per edit. Closing the port cancels the request. A request with
+// `prefetch` comes from a reply box that just opened (Ready on Reply): it runs
+// only when that setting is on and a key is saved, and says so with `start`.
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== 'edit') return;
   const cancel = new AbortController();
@@ -72,13 +81,20 @@ chrome.runtime.onConnect.addListener((port) => {
 
   port.onMessage.addListener(async (context) => {
     const settings = await loadSettings();
+    if (context.prefetch && (!settings.replyOnOpen || !settings.openRouterKey)) {
+      post({ type: 'off' });
+      return;
+    }
     if (!settings.openRouterKey) {
       post({ type: 'error', code: 'settings', message: 'Add your OpenRouter API key to start.' });
       return;
     }
+    const edits = settings.learnFromEdits ? (await loadEdits()).slice(-EDITS_SENT) : [];
+    if (context.prefetch) post({ type: 'start', shortcut: await shortcut() });
+    const started = Date.now();
     try {
       let text = '';
-      const finish = await streamChat({
+      const { finish, usage } = await streamChat({
         apiKey: settings.openRouterKey,
         signal: AbortSignal.any([cancel.signal, AbortSignal.timeout(120_000)]),
         body: {
@@ -89,7 +105,7 @@ chrome.runtime.onConnect.addListener((port) => {
           provider: { zdr: true },
           // Models that reason before answering do it briefly: edits should feel instant.
           reasoning: { effort: 'low' },
-          messages: buildMessages(settings, context),
+          messages: buildMessages(settings, context, edits),
         },
         onText(piece) {
           text += piece;
@@ -99,7 +115,8 @@ chrome.runtime.onConnect.addListener((port) => {
         // the model is still thinking keeps this one awake.
         onWait: () => post({ type: 'wait' }),
       });
-      if (finish === 'stop') post({ type: 'done', text: text.trim() });
+      const meta = { ms: Date.now() - started, cost: costOf(usage) };
+      if (finish === 'stop') post({ type: 'done', text: text.trim(), meta });
       else if (finish === 'content_filter') post({ type: 'error', message: 'The model declined to edit this draft.' });
       // Never offer half an email as the result.
       else post({ type: 'error', message: 'The edit was cut off before it finished. Try again.' });
@@ -110,11 +127,33 @@ chrome.runtime.onConnect.addListener((port) => {
   });
 });
 
+// A draft Rhada wrote was sent: keep how the writer changed it, if they did.
+// Stored with the settings, so only the extension can read it.
+async function learn({ before, after }) {
+  const { learnFromEdits } = await loadSettings();
+  const edit = learnFromEdits ? lesson(before, after) : null;
+  if (!edit) return;
+  const edits = await loadEdits();
+  await chrome.storage.local.set({ [EDITS_KEY]: [...edits, edit].slice(-EDITS_KEPT) });
+}
+
 // Options page: check the saved key and model without spending anything.
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type === 'open-options') {
     chrome.runtime.openOptionsPage();
     return false;
+  }
+  if (msg?.type === 'learn') {
+    learn(msg).catch(() => {});
+    return false;
+  }
+  // Ready on Reply asks before it touches the page, so with it off nothing happens.
+  if (msg?.type === 'ready-on-reply') {
+    loadSettings().then(
+      (settings) => sendResponse(Boolean(settings.replyOnOpen && settings.openRouterKey)),
+      () => sendResponse(false),
+    );
+    return true;
   }
   if (msg?.type !== 'check-key') return false;
   (async () => {

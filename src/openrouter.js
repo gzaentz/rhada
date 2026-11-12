@@ -23,9 +23,10 @@ async function request(path, { apiKey, ...init } = {}) {
   throw new OpenRouterError(response.status, body?.error?.message || response.statusText);
 }
 
-// Streams one chat completion and resolves to its finish reason ("stop" when
-// the model finished on its own). onText gets each piece of the answer. onWait
-// fires for network chunks that carry none: reasoning and keep-alive comments.
+// Streams one chat completion. Resolves to { finish, usage }: the finish reason
+// ("stop" when the model finished on its own) and the token and cost counts
+// OpenRouter sends on the last chunk. onText gets each piece of the answer.
+// onWait fires for network chunks that carry none: reasoning and keep-alives.
 export async function streamChat({ apiKey, signal, body, onText, onWait }) {
   const response = await request('/chat/completions', {
     apiKey,
@@ -36,9 +37,10 @@ export async function streamChat({ apiKey, signal, body, onText, onWait }) {
   const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
   let buffer = '';
   let finish = null;
+  let usage = null;
   for (;;) {
     const { done, value } = await reader.read();
-    if (done) return finish;
+    if (done) return { finish, usage };
     buffer += value;
     const lines = buffer.split('\n');
     buffer = lines.pop();
@@ -60,9 +62,19 @@ export async function streamChat({ apiKey, signal, body, onText, onWait }) {
         wrote = true;
       }
       if (choice?.finish_reason) finish = choice.finish_reason;
+      if (chunk.usage) usage = chunk.usage;
     }
     if (!wrote) onWait();
   }
+}
+
+// What a request cost in US dollars, or null when OpenRouter did not say.
+// With your own provider key (BYOK) the provider bills you directly, so its
+// part is added to OpenRouter's fee.
+export function costOf(usage) {
+  if (typeof usage?.cost !== 'number') return null;
+  const upstream = usage.is_byok ? Number(usage.cost_details?.upstream_inference_cost) || 0 : 0;
+  return usage.cost + upstream;
 }
 
 // Throws with status 401 when OpenRouter does not accept the key. Costs nothing.

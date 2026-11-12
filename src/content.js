@@ -1,63 +1,84 @@
-import { BODY, readDraft, readContext, readOpenThread, replaceDraft, threadKey } from './gmail.js';
+import { BODY, SEND, bodyOf, expandThread, isForward, readContext, readDraft, readOpenThread, replaceDraft, threadKey } from './gmail.js';
 import { textToHtml, textToNodes } from './format.js';
+import { createDictation } from './dictation.js';
 
-const FONT = '-apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
-// Letters that look cut in stone, for the few labels that carry the look.
-const CARVED = 'Optima, Candara, "Segoe UI", sans-serif';
+const FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
 
-// One look, always dark: basalt, marble text, a little gold.
+// Black and white. The one bright thing is the next action.
 const CSS = `
 :host { all: initial; position: fixed; top: 12vh; left: 50%; transform: translateX(-50%);
   z-index: 2147483647; width: min(620px, calc(100vw - 32px)); }
-.card { --fg: #e9e3d7; --bright: #f6f1e7; --muted: #9a9284; --line: #2a2723; --line-2: #3d3830;
-  --gold: #c2a467; --danger: #dd927f;
+.card { --fg: #ececec; --bright: #fff; --muted: #8c8c8c; --line: #1e1e1e; --line-2: #333; --danger: #f28b82;
   position: relative; display: flex; flex-direction: column; max-height: 76vh; overflow: hidden;
-  color-scheme: dark; color: var(--fg); background: linear-gradient(180deg, #171614, #100f0e);
-  border: 1px solid var(--line); border-radius: 6px;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, .55), 0 30px 80px rgba(0, 0, 0, .5), 0 6px 18px rgba(0, 0, 0, .3);
-  font: 14px/21px ${FONT}; animation: rise .16s ease-out; }
-/* A line of light along the lintel. It travels while the model works. */
-.card::before { content: ''; position: absolute; inset: 0 0 auto; height: 1px; pointer-events: none;
-  background: linear-gradient(90deg, transparent, rgba(194, 164, 103, .7) 20%, rgba(194, 164, 103, .7) 80%, transparent); }
-.card.loading::before { animation: glint 1.5s linear infinite;
-  background: linear-gradient(90deg, transparent, rgba(194, 164, 103, .3) 35%, #f0deb0 50%, rgba(194, 164, 103, .3) 65%, transparent) 150% 0 / 200% 100%; }
+  color-scheme: dark; color: var(--fg); background: #0a0a0a; border: 1px solid #262626; border-radius: 12px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, .34), 0 4px 14px rgba(0, 0, 0, .18);
+  font: 14px/21px ${FONT}; -webkit-font-smoothing: antialiased; animation: rise .16s ease-out; }
+/* While the model works, a thin light runs along the top edge. */
+.card::before { content: ''; position: absolute; inset: 0 0 auto; height: 1px; pointer-events: none; opacity: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .12) 35%, #fff 50%, rgba(255, 255, 255, .12) 65%, transparent) 150% 0 / 200% 100%; }
+.card.loading::before { opacity: 1; animation: glint 1.4s linear infinite; }
 @keyframes rise { from { opacity: 0; transform: translateY(6px); } }
 @keyframes glint { to { background-position: -50% 0; } }
+@keyframes breathe { 50% { box-shadow: 0 0 0 4px rgba(255, 255, 255, .14); } }
 @media (prefers-reduced-motion: reduce) {
-  .card, .card.loading::before { animation: none; }
+  .card, .card.loading::before, .icon.listening { animation: none; }
   .out, button { transition: none; }
 }
-.top { display: flex; align-items: flex-start; gap: 10px; padding: 14px 10px 13px 16px; }
-.mark { flex: none; margin-top: 4px; color: var(--gold); }
-slot { display: block; flex: 1; min-width: 0; }
+.top { display: flex; align-items: flex-start; gap: 4px; padding: 13px 10px 12px 16px; }
+.mark { flex: none; margin: 4px 10px 0 0; color: var(--bright); }
+slot { display: block; flex: 1; min-width: 0; padding-top: 1px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 16px 14px 42px; }
 .notice { padding: 11px 18px 12px; border-top: 1px solid var(--line); color: var(--muted); }
 .notice.error { color: var(--danger); }
 .out { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 16px 18px 18px;
   border-top: 1px solid var(--line); overflow-wrap: anywhere; transition: opacity .15s;
   scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
 .out:empty { display: none; }
-.out.stale { opacity: .38; }
-.out a { color: var(--gold); text-underline-offset: 2px; text-decoration-color: rgba(194, 164, 103, .5); }
+.out.stale { opacity: .35; }
+.out a { color: var(--bright); text-underline-offset: 2px; text-decoration-color: rgba(255, 255, 255, .4); }
 .out b { color: var(--bright); font-weight: 600; }
-.out mark { color: var(--gold); background: rgba(194, 164, 103, .12); border-radius: 2px; }
+.out mark { color: var(--bright); background: rgba(255, 255, 255, .14); border-radius: 3px; padding: 0 2px; }
 .out ul, .out ol { margin: 0; padding-left: 22px; }
-::selection { background: rgba(194, 164, 103, .3); }
+::selection { background: rgba(255, 255, 255, .25); }
 .note { padding: 0 18px 12px; color: var(--muted); font-size: 12px; line-height: 17px; }
-.foot { box-sizing: border-box; display: flex; align-items: center; gap: 6px; min-height: 51px;
-  padding: 9px 10px 9px 18px; border-top: 1px solid var(--line); background: rgba(0, 0, 0, .22); }
+.foot { box-sizing: border-box; display: flex; align-items: center; gap: 6px; min-height: 52px;
+  padding: 9px 10px 9px 18px; border-top: 1px solid var(--line); }
 .hint { flex: 1; color: var(--muted); font-size: 12px; line-height: 18px; }
-kbd { margin-right: 1px; padding: 1px 5px; border: 1px solid var(--line-2); border-radius: 3px;
-  background: rgba(233, 227, 215, .04); color: var(--fg); font: 11px/16px ${CARVED}; letter-spacing: .04em; }
-button { all: unset; box-sizing: border-box; cursor: pointer; border: 1px solid transparent;
-  border-radius: 4px; padding: 5px 13px; color: var(--muted); font: 13px/20px ${CARVED};
-  letter-spacing: .03em; transition: color .12s, background .12s, border-color .12s; }
-button:hover { color: var(--fg); background: rgba(233, 227, 215, .06); }
-button:focus-visible { outline: 1px solid var(--gold); outline-offset: 2px; }
-button.primary { color: var(--gold); border-color: rgba(194, 164, 103, .5); background: rgba(194, 164, 103, .12); }
-button.primary:hover { color: #e6cf99; border-color: var(--gold); background: rgba(194, 164, 103, .2); }
-button:disabled { opacity: .4; cursor: default; pointer-events: none; }
-button.icon { display: grid; place-items: center; width: 26px; height: 26px; padding: 0; }
+.meta { margin-right: 6px; color: var(--muted); font-size: 12px; line-height: 18px; font-variant-numeric: tabular-nums; }
+kbd { margin-right: 1px; padding: 1px 5px; border: 1px solid var(--line-2); border-radius: 4px;
+  background: rgba(255, 255, 255, .04); color: var(--fg); font: 500 11px/16px ${FONT}; }
+button { all: unset; box-sizing: border-box; cursor: pointer; border-radius: 7px; padding: 5px 12px;
+  color: var(--muted); font: 500 13px/20px ${FONT}; transition: color .12s, background .12s, border-color .12s; }
+button:hover { color: var(--bright); background: rgba(255, 255, 255, .07); }
+button:focus-visible { outline: 2px solid var(--bright); outline-offset: 2px; }
+button.primary { color: #0a0a0a; background: var(--bright); }
+button.primary:hover { color: #0a0a0a; background: #dcdcdc; }
+button:disabled { opacity: .35; cursor: default; pointer-events: none; }
+button.icon { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; }
+button.icon.listening { color: #0a0a0a; background: var(--bright); animation: breathe 1.6s ease-in-out infinite; }
+button.chip { padding: 3px 11px; border: 1px solid var(--line-2); border-radius: 999px; color: var(--fg);
+  font-size: 12.5px; line-height: 18px; }
+button.chip:hover { border-color: #5c5c5c; background: rgba(255, 255, 255, .04); }
 [hidden] { display: none !important; }
+`;
+
+// Ready on Reply's note at the bottom of the screen.
+const PILL_CSS = `
+:host { all: initial; position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 2147483646; }
+button { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 9px; padding: 7px 9px 7px 14px;
+  border-radius: 999px; cursor: pointer; color: #ececec; background: #0a0a0a; border: 1px solid #262626;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .28); font: 500 13px/20px ${FONT}; -webkit-font-smoothing: antialiased;
+  animation: rise .18s ease-out; transition: background .12s; }
+button:not(.ready) { padding-right: 14px; }
+button:hover { background: #1a1a1a; }
+button:focus-visible { outline: 2px solid #0a0a0a; outline-offset: 2px; }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: #fff; animation: pulse 1.1s ease-in-out infinite alternate; }
+.ready .dot { animation: none; }
+kbd { padding: 1px 6px; border: 1px solid #333; border-radius: 999px; color: #ececec; background: rgba(255, 255, 255, .06);
+  font: 500 11px/16px ${FONT}; }
+@keyframes rise { from { opacity: 0; transform: translateY(6px); } }
+@keyframes pulse { to { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) { button, .dot { animation: none; } }
 `;
 
 // The instruction box stays in the page's own DOM, slotted into the panel, so
@@ -65,8 +86,16 @@ button.icon { display: grid; place-items: center; width: 26px; height: 26px; pad
 // Its placeholder is coloured in extension/content.css.
 const INPUT_STYLE = `all: initial; display: block; box-sizing: border-box; width: 100%;
   field-sizing: content; min-height: 22px; max-height: 120px; overflow-y: auto; resize: none;
-  font: 15px/22px ${FONT}; color: var(--fg); caret-color: var(--gold); background: transparent;
-  cursor: text; white-space: pre-wrap; overflow-wrap: anywhere;`;
+  font: 15px/22px ${FONT}; color: var(--fg); caret-color: #fff; background: transparent;
+  cursor: text; white-space: pre-wrap; overflow-wrap: anywhere; -webkit-font-smoothing: antialiased;`;
+
+// One tap for the replies most email needs. Each is an instruction like a typed one.
+const QUICK = [
+  ['Yes', 'Reply yes to what they ask.'],
+  ['Decline politely', 'Decline politely.'],
+  ['Ask a question', 'Reply with one short question about what they need.'],
+  ['Propose times', 'Propose two or three times to talk, each as [day and time] for me to fill in.'],
+];
 
 const el = (tag, props = {}) => Object.assign(document.createElement(tag), props);
 
@@ -78,23 +107,263 @@ function icon(d) {
     return node;
   };
   const svg = make('svg', { viewBox: '0 0 16 16', width: 16, height: 16, 'aria-hidden': 'true' });
-  svg.append(make('path', { d, fill: 'none', stroke: 'currentColor', 'stroke-width': 1.25, 'stroke-linecap': 'square' }));
+  svg.append(make('path', { d, fill: 'none', stroke: 'currentColor', 'stroke-width': 1.25, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
   return svg;
 }
 // One turn of a Greek key.
 const MEANDER = 'M1.5 14.5v-13h13v10h-9v-6h5v3';
 const SLIDERS = 'M2 5h6m4 0h2M2 11h2m4 0h6M12 5a2 2 0 1 1-4 0 2 2 0 0 1 4 0zM8 11a2 2 0 1 1-4 0 2 2 0 0 1 4 0z';
 const CROSS = 'M4 4l8 8m0-8l-8 8';
+const MIC = 'M6 4a2 2 0 0 1 4 0v3.5a2 2 0 0 1-4 0zM3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5';
 
 // A [what is needed] the model left for the writer to fill in, not a [link](url).
 const BLANK = /\[[^\]\n]+\](?!\()/;
 const BLANKS = new RegExp(`(${BLANK.source})`, 'g');
 
-let lastBody = null;
-function trackFocus(e) {
-  const body = e.target instanceof Element ? e.target.closest(BODY) : null;
-  if (body) lastBody = body;
+// "4.2 s · 1.3¢": how long the model took and what OpenRouter charged.
+function describeMeta(meta) {
+  if (!meta) return '';
+  const parts = [];
+  if (Number.isFinite(meta.ms)) parts.push(`${(meta.ms / 1000).toFixed(1)} s`);
+  if (Number.isFinite(meta.cost)) {
+    const cents = meta.cost * 100;
+    parts.push(meta.cost === 0 ? 'free' : cents >= 100 ? `$${meta.cost.toFixed(2)}` : `${cents.toFixed(cents < 1 ? 2 : 1)}¢`);
+  }
+  return parts.join(' · ');
 }
+
+// Messages to the worker. One sent from a copy left behind by an extension
+// reload has nowhere to go; the next request says so.
+function tell(msg) {
+  try {
+    chrome.runtime.sendMessage(msg)?.catch?.(() => {});
+  } catch {
+    // Reloaded under this tab.
+  }
+}
+
+// A question for the worker. No answer, as after a reload, counts as no.
+async function ask(msg) {
+  try {
+    return await chrome.runtime.sendMessage(msg);
+  } catch {
+    return null;
+  }
+}
+
+// One request to the model, streamed through the worker. The panel and Ready
+// on Reply both start them; whoever shows one sets job.watch. `build` gives the
+// request, and may first expand the thread.
+function startJob(build) {
+  const job = { status: 'loading', text: '', result: '', meta: null, problem: null, shortcut: '', port: null, watcher: null };
+  const emit = (type) => job.watcher?.(type);
+  const end = (status, problem = null) => {
+    if (job.status !== 'loading') return;
+    job.status = status; // done | error | off | cancelled
+    job.problem = problem;
+    const port = job.port;
+    job.port = null;
+    port?.disconnect();
+    emit(status);
+  };
+  job.cancel = () => end('cancelled');
+  job.watch = (watcher) => {
+    job.watcher = watcher;
+  };
+  Promise.resolve()
+    .then(build)
+    .then(
+      (request) => {
+        if (job.status !== 'loading') return;
+        let port;
+        try {
+          port = chrome.runtime.connect({ name: 'edit' });
+        } catch {
+          end('error', { message: 'The extension was updated. Refresh this Gmail tab.' });
+          return;
+        }
+        job.port = port;
+        port.onMessage.addListener((msg) => {
+          if (job.port !== port) return;
+          if (msg.type === 'start') {
+            job.shortcut = msg.shortcut || '';
+            emit('start');
+          } else if (msg.type === 'delta') {
+            job.text += msg.text;
+            emit('delta');
+          } else if (msg.type === 'off') {
+            end('off');
+          } else if (msg.type === 'error') {
+            end('error', { message: msg.message, code: msg.code });
+          } else if (msg.type === 'done') {
+            if (!msg.text) {
+              end('error', { message: 'Nothing came back. Try again.' });
+              return;
+            }
+            job.result = msg.text;
+            job.meta = msg.meta ?? null;
+            end('done');
+          }
+        });
+        port.onDisconnect.addListener(() => {
+          if (job.port !== port) return;
+          job.port = null;
+          end('error', { message: 'Lost contact with the extension. Refresh this Gmail tab.' });
+        });
+        port.postMessage(request);
+      },
+      (err) => end('error', { message: String(err?.message || err) }),
+    );
+  return job;
+}
+
+let panel = null;
+
+// What the panel last wrote into each draft. Opening it again on that text
+// carries on the same conversation instead of polishing its own work, and
+// sending it teaches the model how the writer changed it.
+const written = new WeakMap();
+
+// The latest reply suggested for a thread: { threadId, turns }. Opening the
+// panel on an empty reply to that thread picks it up instead of asking again.
+let suggested = null;
+
+let lastBody = null;
+
+// ---- Ready on Reply ---------------------------------------------------------
+// A reply box that opens empty on a thread starts its suggestion at once, so
+// the panel opens with it written. The worker checks the setting: until it
+// says `start`, nothing shows. Typing a reply of your own stops it.
+
+let prefetch = null; // { body, threadId, job }
+const tried = new WeakSet();
+
+const pill = (() => {
+  let host = null;
+  let timer = 0;
+  function hide() {
+    host?.remove();
+    host = null;
+    clearInterval(timer);
+  }
+  function show(ready, shortcut) {
+    if (panel) return;
+    if (!host) {
+      host = el('div');
+      host.dataset.rhadaPill = '';
+      const button = el('button', { type: 'button' });
+      // Clicking keeps the cursor in the reply, so the panel opens on it.
+      button.addEventListener('mousedown', (e) => e.preventDefault());
+      button.addEventListener('click', () => panel || openPanel());
+      const status = el('div');
+      status.setAttribute('role', 'status');
+      status.append(button);
+      host.attachShadow({ mode: 'open' }).append(el('style', { textContent: PILL_CSS }), status);
+      document.documentElement.append(host);
+      // A reply that was sent, discarded or left behind takes its note with it.
+      timer = setInterval(() => prefetch?.body.isConnected || dropPrefetch(), 1000);
+    }
+    const button = host.shadowRoot.querySelector('button');
+    button.classList.toggle('ready', ready);
+    button.replaceChildren(el('span', { className: 'dot' }), ready ? 'Reply ready' : 'Writing a reply…');
+    if (ready && shortcut) button.append(el('kbd', { textContent: shortcut }));
+    button.title = ready ? 'Open Rhada' : '';
+  }
+  return { show, hide };
+})();
+
+function dropPrefetch() {
+  prefetch?.job.cancel();
+  prefetch = null;
+  pill.hide();
+}
+
+async function readyOnReply(body) {
+  if (panel || tried.has(body) || !body.isConnected || prefetch?.body === body) return;
+  if (readDraft(body).text) {
+    tried.add(body);
+    return;
+  }
+  const context = readContext(body);
+  if (!context.thread.length) return;
+  tried.add(body);
+  const threadId = threadKey(context);
+  if (isForward(context.subject) || suggested?.threadId === threadId) return;
+  // With the setting off or no key saved, it does nothing, not even Expand all.
+  if (!(await ask({ type: 'ready-on-reply' }))) return;
+  if (panel || !body.isConnected || readDraft(body).text) return;
+  dropPrefetch();
+  const job = startJob(async () => {
+    await expandThread(body);
+    // Discarded while the thread opened: there is nothing to write for.
+    if (!body.isConnected) throw new Error('The reply was closed.');
+    return { ...readContext(body), draft: '', turns: [], instruction: '', prefetch: true };
+  });
+  const mine = { body, threadId, job };
+  prefetch = mine;
+  job.watch((type) => {
+    if (prefetch !== mine) return;
+    if (type === 'start') pill.show(false, job.shortcut);
+    else if (type === 'delta') body.isConnected || dropPrefetch();
+    else if (type === 'done') {
+      suggested = { threadId, turns: [{ instruction: '', result: job.result, meta: job.meta }] };
+      pill.show(true, job.shortcut);
+    } else dropPrefetch();
+  });
+}
+
+function onFocus(e) {
+  const body = e.target instanceof Element ? e.target.closest(BODY) : null;
+  if (!body) return;
+  lastBody = body;
+  // Gmail fills in the reply's subject and recipients as the box opens.
+  setTimeout(() => readyOnReply(body), 250);
+}
+
+function onInput(e) {
+  if (!prefetch || !(e.target instanceof Element) || e.target.closest(BODY) !== prefetch.body) return;
+  if (readDraft(prefetch.body).text) dropPrefetch();
+}
+
+// ---- Learn from edits ---------------------------------------------------------
+// Sending a draft the panel wrote tells the worker what the panel wrote and
+// what went out. The worker keeps the pair only if the writer changed more
+// than the [blanks], and only once the box closes. The send itself is never
+// held up or changed.
+
+const SENT_WITHIN = 5000;
+
+function onSend(e) {
+  if (!(e.target instanceof Element)) return;
+  let body = null;
+  if (e.type === 'mouseup') {
+    const button = e.button === 0 ? e.target.closest(SEND) : null;
+    body = button && bodyOf(button);
+  } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+    body = e.target.closest(BODY);
+  } else if ((e.key === 'Enter' || e.key === ' ') && e.target.closest(SEND)) {
+    body = bodyOf(e.target.closest(SEND));
+  }
+  const wrote = body && written.get(body);
+  if (!wrote || wrote.sending) return;
+  // Learn only once the box closes: Gmail refuses some sends and leaves the
+  // box open, and a drag that ends on Send sends nothing.
+  wrote.sending = true;
+  const after = readDraft(body).text;
+  const started = Date.now();
+  const timer = setInterval(() => {
+    if (!body.isConnected || !body.getClientRects().length) {
+      clearInterval(timer);
+      written.delete(body);
+      tell({ type: 'learn', before: wrote.text, after });
+    } else if (Date.now() - started > SENT_WITHIN) {
+      clearInterval(timer);
+      wrote.sending = false;
+    }
+  }, 200);
+}
+
+// ---- The panel ------------------------------------------------------------------
 
 function findBody() {
   const active = document.activeElement?.closest?.(BODY);
@@ -104,17 +373,8 @@ function findBody() {
   return all.length === 1 ? all[0] : null;
 }
 
-let panel = null;
-
-// What the panel last wrote into each draft. Opening it again on that text
-// carries on the same conversation instead of polishing its own work.
-const written = new WeakMap();
-
-// A reply suggested on a thread before its reply box was open: { threadId, turns }.
-// Opening the panel on that empty reply picks it up, ready to write in.
-let suggested = null;
-
 function openPanel() {
+  pill.hide();
   const body = findBody();
   const draft = body ? readDraft(body) : { text: '', blocked: false, lossy: false };
   // With no draft open, a thread on screen is enough to suggest a reply.
@@ -122,20 +382,38 @@ function openPanel() {
   const threadId = context ? threadKey(context) : '';
   const earlier = body ? written.get(body) : null;
   const resumed = earlier?.text === draft.text;
-  const carried = !resumed && !draft.text && threadId && suggested?.threadId === threadId ? suggested : null;
+  // A forward is not a reply: it never takes or leaves a suggested reply.
+  const forward = isForward(context?.subject ?? '');
+  const carried = !resumed && !forward && !draft.text && threadId && suggested?.threadId === threadId ? suggested : null;
+  // Ready on Reply is still writing this box's reply: show it as it arrives.
+  // A finished one is picked up through `suggested`; a later thread's reply
+  // may have replaced that, and then this box asks again.
+  const live =
+    !resumed && !carried && !forward && !draft.text && prefetch?.body === body && prefetch.threadId === threadId && prefetch.job.status === 'loading'
+      ? prefetch.job
+      : null;
+  // A box the panel opened on never starts Ready on Reply later, even after Esc.
+  if (body) tried.add(body);
+  if (body && prefetch?.body === body) {
+    if (!live) prefetch.job.cancel();
+    prefetch = null;
+  }
   const state = {
     status: carried ? 'done' : context ? 'idle' : 'nobody', // idle | loading | done | nobody
     // The draft as it was before any edit, and every finished edit since:
-    // { instruction, result }. Each request sends all of it.
+    // { instruction, result, meta }. Each request sends all of it.
     original: resumed ? earlier.original : draft.text,
     turns: [...(resumed ? earlier.turns : carried ? carried.turns : [])],
     // The version on screen, ready to replace the draft.
     result: carried ? carried.turns.at(-1).result : '',
+    meta: carried ? carried.turns.at(-1).meta : null,
     problem: null, // { message, code } while the last request has failed
     lastInstruction: '',
     writeFailed: false,
-    port: null,
+    job: null,
   };
+  // A reply to the thread on screen gets one-tap replies.
+  const replying = Boolean(context?.thread.length) && !state.original && !forward;
 
   const host = el('div');
   host.dataset.draftEditor = '';
@@ -149,6 +427,7 @@ function openPanel() {
   out.setAttribute('aria-live', 'polite');
   const note = el('div', { className: 'note', hidden: true });
   const hint = el('span', { className: 'hint' });
+  const meta = el('span', { className: 'meta', title: 'How long it took, and what OpenRouter charged' });
   const second = el('button', { type: 'button', hidden: true });
   const primary = el('button', { type: 'button', className: 'primary', textContent: 'Replace draft', hidden: true });
   const iconButton = (label, drawing) => {
@@ -157,21 +436,45 @@ function openPanel() {
     button.append(icon(drawing));
     return button;
   };
+  const micButton = iconButton('Speak', MIC);
   const optionsButton = iconButton('Options', SLIDERS);
   const closeButton = iconButton('Close', CROSS);
   const mark = icon(MEANDER);
   mark.setAttribute('class', 'mark');
 
+  const chips = el('div', { className: 'chips', hidden: !replying });
+  for (const [label, instruction] of QUICK) {
+    const chip = el('button', { type: 'button', className: 'chip', textContent: label });
+    chip.addEventListener('click', () => {
+      dictation.cancel();
+      run(instruction);
+      input.focus();
+    });
+    chips.append(chip);
+  }
+
   const top = el('div', { className: 'top' });
-  top.append(mark, el('slot', { name: 'input' }), optionsButton, closeButton);
+  top.append(mark, el('slot', { name: 'input' }), micButton, optionsButton, closeButton);
   const foot = el('div', { className: 'foot' });
-  foot.append(hint, second, primary);
+  foot.append(hint, meta, second, primary);
   const card = el('div', { className: 'card' });
   card.setAttribute('role', 'dialog');
   card.setAttribute('aria-label', 'Edit draft');
-  card.append(top, notice, out, note, foot);
+  card.append(top, chips, notice, out, note, foot);
   const shadow = host.attachShadow({ mode: 'open' });
   shadow.append(el('style', { textContent: CSS }), card);
+
+  // Speech goes into the box, never straight to the model.
+  const names = [...(context?.to ?? []), ...(context?.thread ?? []).map((m) => m.from)].map((n) => n.replace(/\s*<[^>]*>\s*$/, ''));
+  const dictation = createDictation({
+    lang: navigator.language || 'en-US',
+    names,
+    getText: () => input.value,
+    setText: (text) => {
+      input.value = text;
+    },
+    onUpdate: () => render(),
+  });
 
   // The result as it will look in the draft.
   function show(text) {
@@ -195,7 +498,8 @@ function openPanel() {
     const fix = problem?.code === 'settings';
     card.classList.toggle('loading', status === 'loading');
 
-    notice.textContent = status === 'nobody' ? 'Click into a draft, then press the shortcut again.' : (problem?.message ?? '');
+    notice.textContent =
+      status === 'nobody' ? 'Click into a draft, then press the shortcut again.' : (problem?.message ?? dictation.problem ?? '');
     notice.hidden = !notice.textContent;
     notice.classList.toggle('error', Boolean(problem));
 
@@ -205,9 +509,20 @@ function openPanel() {
     second.textContent = fix ? 'Open Options' : 'Copy';
     // When the fix is in Options, that is the one thing to do next.
     second.classList.toggle('primary', fix && !ready);
+    meta.textContent = ready && !problem ? describeMeta(state.meta) : '';
+    meta.hidden = !meta.textContent;
+
+    const voice = dictation.state;
+    micButton.hidden = voice === 'hidden' || status === 'nobody';
+    micButton.disabled = voice === 'preparing';
+    micButton.classList.toggle('listening', voice === 'listening');
+    const speak = voice === 'listening' ? 'Stop speaking' : voice === 'preparing' ? 'Setting up voice' : 'Speak';
+    micButton.title = speak;
+    micButton.setAttribute('aria-label', speak);
 
     const closes = [key('Esc'), ' closes'];
-    if (status === 'loading') hint.replaceChildren('Working… · ', ...closes);
+    if (voice === 'listening') hint.replaceChildren('Listening… · ', key('Enter'), ' runs it');
+    else if (status === 'loading') hint.replaceChildren('Working… · ', ...closes);
     else if (status === 'nobody') hint.replaceChildren(...closes);
     else if (problem) hint.replaceChildren(key('Enter'), ' tries again · ', ...closes);
     else if (!ready) hint.replaceChildren(key('Enter'), ' runs it · ', ...closes);
@@ -233,8 +548,7 @@ function openPanel() {
   // A failed change costs nothing: the last full version comes back into view
   // and the instruction goes back into the box, selected, ready to resend.
   function fail(message, code) {
-    state.port?.disconnect();
-    state.port = null;
+    state.job = null;
     state.problem = { message, code };
     state.status = state.result ? 'done' : 'idle';
     out.classList.remove('stale');
@@ -247,52 +561,61 @@ function openPanel() {
     render();
   }
 
-  function run(instruction) {
-    state.port?.disconnect();
+  // Shows a request as it streams in, and keeps it once it finishes.
+  function follow(job, instruction) {
+    if (state.job !== job) state.job?.cancel();
+    state.job = job;
     state.lastInstruction = instruction;
     state.status = 'loading';
     state.problem = null;
     // The last version stays in view, dimmed, until the new one starts to arrive.
     out.classList.add('stale');
-    render();
-
-    let port;
-    try {
-      port = chrome.runtime.connect({ name: 'edit' });
-    } catch {
-      fail('The extension was updated. Refresh this Gmail tab.');
-      return;
+    if (job.text) {
+      out.classList.remove('stale');
+      show(job.text);
     }
-    state.port = port;
-    let shown = '';
-    port.onMessage.addListener((msg) => {
-      if (state.port !== port) return;
-      if (msg.type === 'delta') {
-        shown += msg.text;
+    render();
+    job.watch((type) => {
+      if (state.job !== job) return;
+      if (type === 'delta') {
         out.classList.remove('stale');
-        show(shown);
-      } else if (msg.type === 'error') {
-        fail(msg.message, msg.code);
-      } else if (msg.type === 'done') {
-        if (!msg.text) {
-          fail('Nothing came back. Try again.');
-          return;
-        }
-        state.port = null;
-        port.disconnect();
-        state.turns.push({ instruction, result: msg.text });
-        if (!body) suggested = { threadId, turns: [...state.turns] };
-        state.result = msg.text;
+        show(job.text);
+      } else if (type === 'done') {
+        state.job = null;
+        state.turns.push({ instruction, result: job.result, meta: job.meta });
+        if (!state.original && !forward && threadId) suggested = { threadId, turns: [...state.turns] };
+        state.result = job.result;
+        state.meta = job.meta;
         state.status = 'done';
         out.classList.remove('stale');
-        show(msg.text);
+        show(job.result);
         render();
+      } else if (type === 'error') {
+        fail(job.problem.message, job.problem.code);
+      } else if (type === 'off') {
+        // Ready on Reply was turned off as it started: ask now instead.
+        run(instruction);
       }
     });
-    port.onDisconnect.addListener(() => {
-      if (state.port === port) fail('Lost contact with the extension. Refresh this Gmail tab.');
-    });
-    port.postMessage({ ...context, draft: state.original, turns: state.turns, instruction });
+  }
+
+  // Older messages are expanded and read once, before the first request.
+  let reading = null;
+  function run(instruction) {
+    const turns = [...state.turns];
+    follow(
+      startJob(async () => {
+        if (context.thread.length) {
+          reading ??= expandThread(body).then(() => {
+            const now = body ? (body.isConnected ? readContext(body) : null) : readOpenThread();
+            if (now && now.thread.length > context.thread.length) context.thread = now.thread;
+          });
+          await reading;
+        }
+        return { ...context, draft: state.original, turns, instruction };
+      }),
+      instruction,
+    );
   }
 
   function replace() {
@@ -309,7 +632,10 @@ function openPanel() {
     input.focus();
   }
 
-  function submit() {
+  async function submit() {
+    // Enter while speaking waits for the last words, then runs them.
+    if (dictation.state === 'listening' && (await dictation.finish()) === null) return;
+    if (!host.isConnected) return;
     const instruction = input.value.trim();
     if (instruction) {
       input.value = '';
@@ -318,14 +644,6 @@ function openPanel() {
       run(state.lastInstruction);
     } else if (state.status === 'done') {
       replace();
-    }
-  }
-
-  function openOptions() {
-    try {
-      chrome.runtime.sendMessage({ type: 'open-options' });
-    } catch {
-      // The extension was reloaded under this tab: the next edit says so.
     }
   }
 
@@ -349,8 +667,9 @@ function openPanel() {
   const KEY_EVENTS = ['keydown', 'keypress', 'keyup'];
 
   function close({ refocus = true } = {}) {
-    state.port?.disconnect();
-    state.port = null;
+    state.job?.cancel();
+    state.job = null;
+    dictation.cancel();
     for (const type of KEY_EVENTS) window.removeEventListener(type, onKey, true);
     host.remove();
     panel = null;
@@ -359,10 +678,19 @@ function openPanel() {
 
   primary.addEventListener('click', replace);
   closeButton.addEventListener('click', () => close());
-  optionsButton.addEventListener('click', openOptions);
+  optionsButton.addEventListener('click', () => tell({ type: 'open-options' }));
+  micButton.addEventListener('click', () => {
+    dictation.toggle();
+    input.focus();
+  });
+  // Typing while speaking stops listening and keeps both.
+  input.addEventListener('input', () => {
+    if (dictation.state === 'listening') dictation.cancel();
+    else dictation.clearProblem();
+  });
   second.addEventListener('click', async () => {
     if (state.problem?.code === 'settings') {
-      openOptions();
+      tell({ type: 'open-options' });
       return;
     }
     // Rich text, so links and bold survive a paste into Gmail.
@@ -393,8 +721,9 @@ function openPanel() {
   host.append(input);
   input.focus();
   if (carried) show(state.result);
+  if (live) follow(live, '');
   // A draft with text gets the first pass. An empty reply gets a suggested one.
-  if (!resumed && !carried && (draft.text || context.thread.length)) run('');
+  else if (!resumed && !carried && (draft.text || context.thread.length)) run('');
   else render();
 }
 
@@ -415,6 +744,9 @@ function onMessage(msg) {
 // extension reload can no longer reach the extension, so it gives way.
 if (!globalThis.rhadaLive?.()) {
   globalThis.rhadaLive = () => Boolean(chrome.runtime?.id);
-  document.addEventListener('focusin', trackFocus, true);
+  document.addEventListener('focusin', onFocus, true);
+  document.addEventListener('input', onInput, true);
+  window.addEventListener('mouseup', onSend, true);
+  window.addEventListener('keydown', onSend, true);
   chrome.runtime.onMessage.addListener(onMessage);
 }

@@ -1,16 +1,20 @@
-import { DEFAULTS, loadSettings } from './settings.js';
+import { DEFAULTS, EDITS_KEY, FLAGS, loadEdits, loadSettings } from './settings.js';
 import { CONTRACT } from './prompt.js';
 
 const FIELDS = Object.keys(DEFAULTS);
 const form = document.getElementById('form');
 const save = document.getElementById('save');
 const status = document.getElementById('status');
+const kept = document.getElementById('kept');
+const forget = document.getElementById('forget');
 const restores = [...document.querySelectorAll('[data-restore]')];
 const field = (name) => document.getElementById(name);
+const isFlag = (name) => FLAGS.includes(name);
 
 let saved = null;
-// An emptied field goes back to its default.
-const read = () => Object.fromEntries(FIELDS.map((name) => [name, field(name).value.trim() || DEFAULTS[name]]));
+// An emptied text field goes back to its default. Switches are on or off.
+const read = () =>
+  Object.fromEntries(FIELDS.map((name) => [name, isFlag(name) ? field(name).checked : field(name).value.trim() || DEFAULTS[name]]));
 
 function show(text, kind = '') {
   status.textContent = text;
@@ -26,8 +30,20 @@ function sync() {
 }
 
 function fill(values) {
-  for (const name of FIELDS) field(name).value = values[name];
+  for (const name of FIELDS) {
+    if (isFlag(name)) field(name).checked = values[name];
+    else field(name).value = values[name];
+  }
   sync();
+}
+
+// How many sent emails Rhada has kept to learn from.
+async function count() {
+  const edits = await loadEdits();
+  kept.textContent = edits.length
+    ? `${edits.length} ${edits.length === 1 ? 'edit' : 'edits'} kept in this browser.`
+    : 'No edits kept yet.';
+  forget.hidden = !edits.length;
 }
 
 document.getElementById('contract').textContent = CONTRACT;
@@ -35,6 +51,14 @@ document.getElementById('contract').textContent = CONTRACT;
 loadSettings().then((settings) => {
   saved = settings;
   fill(settings);
+});
+count();
+chrome.storage.onChanged.addListener((changes) => {
+  if (EDITS_KEY in changes) count();
+});
+forget.addEventListener('click', async () => {
+  await chrome.storage.local.remove(EDITS_KEY);
+  kept.focus();
 });
 
 form.addEventListener('input', () => {

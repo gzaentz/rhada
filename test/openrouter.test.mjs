@@ -2,7 +2,7 @@
 // the live API on 2026-11-09; the stream follows OpenRouter's streaming docs.
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
-import { OpenRouterError, checkKey, modelExists, streamChat, zdrEndpoints } from '../src/openrouter.js';
+import { OpenRouterError, checkKey, costOf, modelExists, streamChat, zdrEndpoints } from '../src/openrouter.js';
 
 const realFetch = globalThis.fetch;
 afterEach(() => {
@@ -32,12 +32,23 @@ const chunk = (delta, finish = null, extra = {}) =>
   `data: ${JSON.stringify({ id: 'gen-1', object: 'chat.completion.chunk', model: 'anthropic/claude-opus-5.5', provider: 'Anthropic', choices: [{ index: 0, delta, finish_reason: finish, native_finish_reason: finish }], ...extra })}\n\n`;
 
 const ANSWER = 'Hi Dana — 20 seats is $40/seat. Café at 3? 👍';
+// The usage OpenRouter sends on the last chunk, in the shape of its usage docs.
+const USAGE = {
+  prompt_tokens: 1840,
+  completion_tokens: 212,
+  total_tokens: 2052,
+  cost: 0.01160,
+  is_byok: false,
+  prompt_tokens_details: { cached_tokens: 0 },
+  cost_details: { upstream_inference_cost: null },
+  completion_tokens_details: { reasoning_tokens: 40 },
+};
 const STREAM = [
   ': OPENROUTER PROCESSING\n\n',
   chunk({ role: 'assistant', content: '', reasoning: 'Keep it short.' }),
   ...ANSWER.match(/.{1,7}/gu).map((piece) => chunk({ role: 'assistant', content: piece })),
   chunk({ role: 'assistant', content: '' }, 'stop'),
-  chunk({ role: 'assistant', content: '' }, 'stop', { usage: { prompt_tokens: 10, completion_tokens: 20 } }),
+  chunk({ role: 'assistant', content: '' }, 'stop', { usage: USAGE }),
   'data: [DONE]\n\n',
 ].join('');
 
@@ -48,12 +59,12 @@ async function run(response) {
     return response;
   };
   const got = { text: '', waits: 0, sent };
-  got.finish = await streamChat({
+  ({ finish: got.finish, usage: got.usage } = await streamChat({
     apiKey: 'sk-or-test',
     body: { model: 'anthropic/claude-opus-5.5', messages: [] },
     onText: (piece) => (got.text += piece),
     onWait: () => (got.waits += 1),
-  });
+  }));
   return got;
 }
 
@@ -64,6 +75,21 @@ for (const sizes of [[1], [5, 3, 17], [64], [100000]]) {
     assert.equal(got.finish, 'stop');
   });
 }
+
+test('keeps the token and cost counts from the last chunk', async () => {
+  const got = await run(streamed(STREAM, [5, 3, 17]));
+  assert.deepEqual(got.usage, USAGE);
+  const bare = await run(streamed(chunk({ content: 'Hi' }, 'stop'), [64]));
+  assert.equal(bare.usage, null);
+});
+
+test('a cost is what OpenRouter charged, plus the provider bill when the key is your own', () => {
+  assert.equal(costOf(USAGE), 0.0116);
+  assert.equal(costOf({ ...USAGE, cost: 0 }), 0);
+  assert.equal(costOf({ ...USAGE, is_byok: true, cost: 0.0006, cost_details: { upstream_inference_cost: 0.0116 } }), 0.0006 + 0.0116);
+  assert.equal(costOf({ prompt_tokens: 10, completion_tokens: 20 }), null);
+  assert.equal(costOf(null), null);
+});
 
 test('sends the key and asks for a stream', async () => {
   const { sent } = await run(streamed(STREAM, [64]));

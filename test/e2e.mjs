@@ -1,6 +1,7 @@
 // Loads the built extension into Chromium and drives it against a page that
-// copies Gmail's compose and thread markup (captured from live Gmail,
-// 2026-11-09) and Gmail's Trusted Types policy. OpenRouter is stubbed: its
+// copies Gmail's compose and thread markup (captured from live Gmail on
+// 2026-11-09; Send, Expand all and collapsed messages on 2026-11-11) and
+// Gmail's Trusted Types policy. OpenRouter is stubbed: its
 // error bodies were recorded from the live API, its stream follows its docs.
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
@@ -51,11 +52,22 @@ const composeBox = (name, subject) => `<table><tbody><tr><td class="I5">
       <input name="subjectbox" aria-label="Subject" value="${subject}">
     </form>
     <div class="Am aiL Al editable" role="textbox" aria-label="Message Body" aria-multiline="true" contenteditable="true" g_editable="true" style="min-height:120px">${BODIES[name]}</div>
+    <div role="button" class="T-I J-J5-Ji aoO v7 T-I-atl L3" tabindex="0" data-tooltip="Send ‪(⌘Enter)‬" aria-label="Send ‪(⌘Enter)‬">Send</div>
   </td></tr></tbody></table>`;
 
+// An earlier message, collapsed the way Gmail shows it: a snippet, no body.
+// "Expand all" loads it a moment later.
+const OLDER_COLLAPSED = `<div role="listitem"><div class="kv"><span class="gD" email="lee@example.com" name="Lee Park">Lee Park</span> <span class="y2">Hi Dana, looping in Sam…</span></div></div>`;
+const OLDER_FULL = `<template id="olderFull"><div class="adn ads">
+    <span class="gD" email="lee@example.com" name="Lee Park">Lee Park</span>
+    <span class="g3" title="Nov 7, 2026, 4:02 PM">Nov 7</span>
+    <div class="a3s aiL"><div dir="ltr">Hi Dana, looping in Sam for pricing.</div></div>
+  </div></template>`;
+const EXPAND_ALL = '<div role="button" tabindex="0" aria-label="Expand all" id="expandAll" class="bjJ">Expand all</div>';
+
 // `none` is a thread with no reply open yet, and a Reply button that opens one.
-// `inbox` has neither a thread nor a draft.
-function gmailPage(name, { subject = 'Re: Pricing question' } = {}) {
+// `inbox` has neither a thread nor a draft. `older` adds a collapsed message.
+function gmailPage(name, { subject = 'Re: Pricing question', older = false } = {}) {
   const compose =
     name === 'none'
       ? `<div role="button" tabindex="0" id="reply">Reply</div><template id="replyBox">${composeBox('empty', subject)}</template>`
@@ -72,8 +84,8 @@ function gmailPage(name, { subject = 'Re: Pricing question' } = {}) {
   #reply { display: inline-block; padding: 8px 20px; border: 1px solid #dadce0; border-radius: 18px; cursor: pointer; }
 </style></head><body>
 <div role="main">${name === 'inbox' ? '<p>Inbox</p></div>' : `
-  <h2 class="hP">Pricing question</h2>
-  <div role="list"><div role="listitem"><div class="adn ads">
+  <h2 class="hP">Pricing question</h2>${older ? EXPAND_ALL + OLDER_FULL : ''}
+  <div role="list">${older ? OLDER_COLLAPSED : ''}<div role="listitem"><div class="adn ads">
     <span class="gD" email="dana@example.com" name="Dana Lee">Dana Lee</span>
     <span class="g3" title="Nov 8, 2026, 9:14 AM">9:14 AM</span>
     <div class="a3s aiL"><div dir="ltr">Hi Sam,<div><br></div><div>Can you send pricing for 20 seats?</div><div class="gmail_quote">an older quoted message</div></div></div>
@@ -92,6 +104,25 @@ function gmailPage(name, { subject = 'Re: Pricing question' } = {}) {
   document.getElementById('reply')?.addEventListener('click', (e) => {
     e.target.replaceWith(document.getElementById('replyBox').content.cloneNode(true));
     document.querySelector('[g_editable="true"]').focus();
+  });
+  // Like Gmail's Expand all: the collapsed messages load a moment later.
+  document.getElementById('expandAll')?.addEventListener('click', (e) => {
+    const button = e.currentTarget;
+    setTimeout(() => {
+      document.querySelector('.kv').replaceWith(document.getElementById('olderFull').content.cloneNode(true));
+      button.setAttribute('aria-label', 'Collapse all');
+      button.textContent = 'Collapse all';
+    }, 120);
+  });
+  // Like Gmail's Send, by button or Cmd+Enter: the compose box goes away.
+  window.__sent = 0;
+  const send = (from) => {
+    from.closest('table').remove();
+    window.__sent += 1;
+  };
+  document.addEventListener('click', (e) => e.target.closest('.aoO') && send(e.target));
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && e.target.closest('[g_editable="true"]')) send(e.target);
   });
 </script>
 </body></html>`;
@@ -126,6 +157,12 @@ Two options:
 
 Which works?`;
 
+const DECLINED = `Hi Dana,
+
+Thanks for thinking of us. We can't take on 20 seats right now, but I'll reach out if that changes.
+
+- Sam`;
+
 // What the panel shows: links and bold rendered, not as markup.
 const rendered = (text) => text.replace(/\*\*/g, '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
 
@@ -137,7 +174,7 @@ function sse(text, finish = 'stop') {
     chunk({ role: 'assistant', content: '', reasoning: 'Tighten it, keep the facts.' }),
     ...text.match(/[\s\S]{1,24}/g).map((piece) => chunk({ role: 'assistant', content: piece })),
     // A finished stream repeats the finish reason on a last chunk that carries the usage.
-    ...(finish ? [chunk({ role: 'assistant', content: '' }, finish), chunk({ role: 'assistant', content: '' }, finish, { usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 } }), 'data: [DONE]\n\n'] : []),
+    ...(finish ? [chunk({ role: 'assistant', content: '' }, finish), chunk({ role: 'assistant', content: '' }, finish, { usage: { prompt_tokens: 1840, completion_tokens: 212, total_tokens: 2052, cost: 0.0123, is_byok: false, cost_details: { upstream_inference_cost: null } } }), 'data: [DONE]\n\n'] : []),
   ].join('');
 }
 
@@ -152,6 +189,10 @@ const context = await chromium.launchPersistentContext(profile, {
 });
 
 const calls = [];
+// How long the stubbed model takes to start answering, in ms. Screenshots
+// get a pause like a real model's, so the time under a result is not 0.0 s.
+const PACE = SHOTS ? 1200 : 0;
+let delay = PACE;
 let passed = 0;
 try {
   await context.route('https://mail.google.com/**', (route) => {
@@ -159,7 +200,7 @@ try {
     return route.fulfill({
       contentType: 'text/html',
       headers: { 'content-security-policy': "require-trusted-types-for 'script'" },
-      body: gmailPage(url.searchParams.get('case'), { subject: url.searchParams.get('subject') ?? undefined }),
+      body: gmailPage(url.searchParams.get('case'), { subject: url.searchParams.get('subject') ?? undefined, older: url.searchParams.has('older') }),
     });
   });
   await context.route('https://example.com/**', (route) =>
@@ -187,10 +228,13 @@ try {
     // `prompt` is the first message: the thread, the draft and the first instruction.
     calls.push({ headers, body, prompt: body.messages[1].content });
     const asked = body.messages.at(-1).content;
-    if (/slowly/.test(asked)) await new Promise((resolve) => setTimeout(resolve, 1500));
-    if (/cut it off/.test(asked)) return route.fulfill({ contentType: 'text/event-stream', body: sse('Hi Dana, pricing for 20 seats is', null) });
-    const reply = /Write my reply/.test(asked) ? SUGGESTED : /two options/i.test(asked) ? OPTIONS_REPLY : /\bPS\b/.test(asked) ? WITH_PS : /shorter/.test(asked) ? SHORTER : POLISHED;
-    return route.fulfill({ contentType: 'text/event-stream', body: sse(reply) });
+    const wait = /slowly/.test(asked) ? 1500 : delay;
+    if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
+    // A request the extension cancelled meanwhile has nothing left to answer.
+    const answer = (text, finish) => route.fulfill({ contentType: 'text/event-stream', body: sse(text, finish) }).catch(() => {});
+    if (/cut it off/.test(asked)) return answer('Hi Dana, pricing for 20 seats is', null);
+    const reply = /Write my reply/.test(asked) ? SUGGESTED : /Decline politely/.test(asked) ? DECLINED : /two options/i.test(asked) ? OPTIONS_REPLY : /\bPS\b/.test(asked) ? WITH_PS : /shorter/.test(asked) ? SHORTER : POLISHED;
+    return answer(reply);
   });
 
   await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: 'https://mail.google.com' });
@@ -228,6 +272,87 @@ try {
       return tail.outerHTML;
     });
   const signatures = (page) => page.locator('[g_editable="true"] .gmail_signature').count();
+  // Selects some text in the draft, the way a mouse would, so typing replaces it.
+  const selectInDraft = (page, text) =>
+    page.locator('[g_editable="true"]').evaluate((body, text) => {
+      const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+      while (walker.nextNode()) {
+        const node = walker.currentNode;
+        const at = node.data.indexOf(text);
+        if (at < 0) continue;
+        const range = document.createRange();
+        range.setStart(node, at);
+        range.setEnd(node, at + text.length);
+        getSelection().removeAllRanges();
+        getSelection().addRange(range);
+        return;
+      }
+      throw new Error(`"${text}" is not in the draft`);
+    }, text);
+  const keptEdits = () => worker.evaluate(async () => (await chrome.storage.local.get('edits')).edits ?? []);
+  const waitFor = async (check, what) => {
+    for (let waited = 0; waited < 3000; waited += 50) {
+      if (await check()) return;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    throw new Error(`timed out waiting for ${what}`);
+  };
+  // Stands in for Chrome's speech recognizer, in the panel's own script world.
+  // `local` hears "make it shorter" on this device, `unavailable` has no
+  // model for the language, and `none` is a browser without the on-device API.
+  const fakeVoice = async (page, mode) => {
+    await page.bringToFront();
+    await worker.evaluate(async (mode) => {
+      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        args: [mode],
+        func: (mode) => {
+          if (mode === 'none') {
+            globalThis.SpeechRecognition = undefined;
+            globalThis.webkitSpeechRecognition = undefined;
+            return;
+          }
+          class Recognition {
+            static available = async () => (mode === 'local' ? 'available' : 'unavailable');
+            static install = async () => false;
+            #local = false;
+            get processLocally() {
+              return this.#local;
+            }
+            set processLocally(value) {
+              this.#local = value === true;
+            }
+            start() {
+              const phrases = (this.phrases ?? []).map((p) => [p.phrase, p.boost]);
+              document.documentElement.dataset.heard = JSON.stringify({ lang: this.lang, local: this.processLocally, continuous: this.continuous, phrases });
+              const results = [];
+              const say = (transcript, at) =>
+                setTimeout(() => {
+                  results.push([{ transcript }]);
+                  this.onresult?.({ results });
+                }, at);
+              say('make it', 60);
+              say(' shorter', 140);
+            }
+            stop() {
+              setTimeout(() => this.onend?.(), 40);
+            }
+            abort() {
+              setTimeout(() => this.onend?.(), 0);
+            }
+          }
+          globalThis.SpeechRecognition = undefined;
+          globalThis.webkitSpeechRecognition = Recognition;
+          globalThis.SpeechRecognitionPhrase = class {
+            constructor(phrase, boost) {
+              Object.assign(this, { phrase, boost });
+            }
+          };
+        },
+      });
+    }, mode);
+  };
   const test = async (name, fn) => {
     await fn();
     passed += 1;
@@ -357,7 +482,7 @@ try {
     await page.evaluate(() => (window.__keys.length = 0));
     await page.keyboard.type('shorter');
     await page.keyboard.press('Enter');
-    await page.locator('.out', { hasText: '20 seats is' }).waitFor();
+    await page.locator('.out', { hasText: '20 seats is $40/seat:' }).waitFor();
     await page.getByRole('button', { name: 'Replace draft' }).waitFor();
     assert.deepEqual(await page.evaluate(() => window.__keys), []);
     // Each change sends the whole conversation, so "undo that" has something to go back to.
@@ -492,7 +617,7 @@ try {
 
     await page.keyboard.type('shorter');
     await page.keyboard.press('Enter');
-    await page.locator('.out', { hasText: '20 seats is' }).waitFor();
+    await page.locator('.out', { hasText: '20 seats is $40/seat:' }).waitFor();
     await page.getByRole('button', { name: 'Copy' }).waitFor();
 
     // Gmail's Reply opens the box with the cursor in it. One press moves the
@@ -627,7 +752,7 @@ try {
     await page.getByRole('button', { name: 'Replace draft' }).waitFor();
     await page.keyboard.type('shorter');
     await page.keyboard.press('Enter');
-    await page.locator('.out', { hasText: '20 seats is' }).waitFor();
+    await page.locator('.out', { hasText: '20 seats is $40/seat:' }).waitFor();
     await page.getByRole('button', { name: 'Replace draft' }).click();
     await page.locator('.note', { hasText: 'Could not write into this draft' }).waitFor();
     assert.equal(await shownText(page), rendered(SHORTER));
@@ -670,6 +795,230 @@ try {
     await toggle(page);
     await page.locator('[data-draft-editor]').waitFor({ state: 'detached' });
     await page.close();
+  });
+
+  await test('Ready on Reply: opening a reply writes one, with the whole thread read', async () => {
+    const page = await context.newPage();
+    await page.goto('https://mail.google.com/mail/u/0/?case=none&older=1');
+    const before = calls.length;
+    await page.getByRole('button', { name: 'Reply', exact: true }).click();
+    const ready = page.getByRole('button', { name: /^Reply ready/ });
+    await ready.waitFor();
+    assert.equal(calls.length, before + 1);
+    // The collapsed message was expanded and read, oldest first.
+    const { prompt } = calls.at(-1);
+    assert.match(prompt, /<thread>\n<message from="Lee Park <lee@example\.com>" date="Nov 7, 2026, 4:02 PM">\nHi Dana, looping in Sam for pricing\.\n<\/message>\n<message from="Dana Lee/);
+    assert.match(prompt, /<draft>\n\n<\/draft>\n\n<instruction>\nWrite my reply to the latest message/);
+    assert.equal(await page.getByRole('button', { name: 'Collapse all' }).count(), 1);
+    // The cursor stays in the reply, so writing your own is one keystroke away.
+    assert.equal(await page.evaluate(() => document.activeElement.getAttribute('g_editable')), 'true');
+    await shot(page, 'pill-ready');
+
+    // One click shows it, already written, with what it took and cost.
+    await ready.click();
+    await page.getByRole('button', { name: 'Replace draft' }).waitFor();
+    assert.equal(calls.length, before + 1, 'nothing is asked twice');
+    assert.equal(await shownText(page), rendered(SUGGESTED));
+    assert.equal(await page.locator('[data-rhada-pill]').count(), 0);
+    assert.match(await page.locator('.meta').innerText(), /^\d+\.\d s · 1\.2¢$/);
+    await shot(page, 'panel-ready-on-reply');
+    await page.keyboard.press('Enter');
+    await page.locator('[data-draft-editor]').waitFor({ state: 'detached' });
+    assert.match(await draftText(page), /^Hi Dana,\n\nHappy to help\. For 20 seats it is \[price per seat\] a month\.\n\n- Sam\nSam Rivera/);
+    await page.close();
+  });
+
+  await test('Ready on Reply stops when you type, and stays quiet when off', async () => {
+    delay = 1500;
+    const page = await context.newPage();
+    await page.goto('https://mail.google.com/mail/u/0/?case=none');
+    await page.getByRole('button', { name: 'Reply', exact: true }).click();
+    await page.getByRole('button', { name: /^Writing a reply/ }).waitFor();
+    await shot(page, 'pill-writing');
+    await page.keyboard.type('Thanks Dana, ');
+    await page.locator('[data-rhada-pill]').waitFor({ state: 'detached' });
+    delay = PACE;
+    // The panel then works on what was typed, not on the reply it dropped.
+    await toggle(page);
+    await page.getByRole('button', { name: 'Replace draft' }).waitFor();
+    assert.match(calls.at(-1).prompt, /<draft>\nThanks Dana,\n<\/draft>\n\n<instruction>\nPolish this draft/);
+    assert.equal(await shownText(page), rendered(POLISHED));
+    await page.close();
+
+    await worker.evaluate(() => chrome.storage.local.set({ replyOnOpen: false }));
+    const off = await context.newPage();
+    await off.goto('https://mail.google.com/mail/u/0/?case=none&older=1');
+    const before = calls.length;
+    await off.getByRole('button', { name: 'Reply', exact: true }).click();
+    await off.waitForTimeout(800);
+    assert.equal(calls.length, before, 'nothing is sent until asked');
+    assert.equal(await off.locator('[data-rhada-pill]').count(), 0);
+    assert.equal(await off.locator('.kv').count(), 1, 'the thread is left as it was');
+    await toggle(off);
+    await off.getByRole('button', { name: 'Replace draft' }).waitFor();
+    assert.equal(await shownText(off), rendered(SUGGESTED));
+    assert.equal(calls.length, before + 1);
+    await off.close();
+    await worker.evaluate(() => chrome.storage.local.set({ replyOnOpen: true }));
+
+    // Esc on a reply the panel was writing is a no: closing it starts nothing else.
+    delay = 1500;
+    const esc = await context.newPage();
+    await esc.goto('https://mail.google.com/mail/u/0/?case=none');
+    const first = calls.length;
+    await esc.getByRole('button', { name: 'Reply', exact: true }).click();
+    await toggle(esc);
+    await esc.locator('[data-draft-editor] .card.loading').waitFor();
+    await esc.keyboard.press('Escape');
+    await esc.locator('[data-draft-editor]').waitFor({ state: 'detached' });
+    await esc.waitForTimeout(1000);
+    assert.ok(calls.length - first <= 1, 'one request at most, the one Esc cancelled');
+    assert.equal(await esc.locator('[data-rhada-pill]').count(), 0);
+    delay = PACE;
+    await esc.close();
+  });
+
+  await test('one-tap replies on a reply, and none on a draft with text', async () => {
+    const page = await open('empty');
+    await toggle(page);
+    await page.getByRole('button', { name: 'Replace draft' }).waitFor();
+    assert.deepEqual(await page.locator('.chips button').allInnerTexts(), ['Yes', 'Decline politely', 'Ask a question', 'Propose times']);
+    await shot(page, 'panel-quick-replies');
+    await page.getByRole('button', { name: 'Decline politely' }).click();
+    await page.locator('.out', { hasText: "We can't take on 20 seats" }).waitFor();
+    await page.getByRole('button', { name: 'Replace draft' }).waitFor();
+    const messages = calls.at(-1).body.messages;
+    assert.deepEqual(messages.map((m) => m.role), ['system', 'user', 'assistant', 'user']);
+    assert.equal(messages.at(-1).content, '<instruction>\nDecline politely.\n</instruction>');
+    assert.equal(await page.evaluate(() => document.activeElement.tagName), 'TEXTAREA', 'the box keeps the cursor for the next change');
+    await page.close();
+
+    const draft = await open('fresh');
+    await toggle(draft);
+    await draft.getByRole('button', { name: 'Replace draft' }).waitFor();
+    assert.equal(await draft.locator('.chips').isVisible(), false);
+    await draft.close();
+  });
+
+  await test('sending a changed draft teaches the next request; filling the blanks does not', async () => {
+    await worker.evaluate(() => chrome.storage.local.remove('edits'));
+    const write = async (page) => {
+      await toggle(page);
+      await page.getByRole('button', { name: 'Replace draft' }).waitFor();
+      await page.keyboard.press('Enter');
+      await page.locator('[data-draft-editor]').waitFor({ state: 'detached' });
+    };
+
+    // Only the [blank] filled in, sent with Cmd+Enter: nothing to learn.
+    const filled = await open('empty');
+    await write(filled);
+    await selectInDraft(filled, '[price per seat]');
+    await filled.keyboard.type('$40 a seat');
+    await filled.keyboard.press('ControlOrMeta+Enter');
+    assert.equal(await filled.evaluate(() => window.__sent), 1);
+    await filled.waitForTimeout(400);
+    assert.deepEqual(await keptEdits(), []);
+    await filled.close();
+
+    // A real change, sent with the Send button: kept, before and after.
+    const changed = await open('empty');
+    await write(changed);
+    await selectInDraft(changed, 'Happy to help.');
+    await changed.keyboard.type('Sure thing, glad you asked.');
+    await changed.getByRole('button', { name: /^Send/ }).click();
+    assert.equal(await changed.evaluate(() => window.__sent), 1);
+    await waitFor(async () => (await keptEdits()).length === 1, 'the edit to be kept');
+    const [edit] = await keptEdits();
+    assert.equal(edit.before, 'Hi Dana,\n\nHappy to help. For 20 seats it is [price per seat] a month.\n\n- Sam');
+    assert.equal(edit.after, 'Hi Dana,\n\nSure thing, glad you asked. For 20 seats it is [price per seat] a month.\n\n- Sam');
+    await changed.close();
+
+    // The next request shows the model how the writer edits.
+    const next = await open('fresh');
+    await toggle(next);
+    await next.getByRole('button', { name: 'Replace draft' }).waitFor();
+    assert.match(calls.at(-1).body.messages[0].content, /\n\n<past_edits>\n<edit>\n<before>\nHi Dana,\n\nHappy to help\.[\s\S]*<\/before>\n<after>\nHi Dana,\n\nSure thing, glad you asked\.[\s\S]*- Sam\n<\/after>\n<\/edit>\n<\/past_edits>$/);
+
+    // Turned off: none are sent, and none are kept.
+    await worker.evaluate(() => chrome.storage.local.set({ learnFromEdits: false }));
+    await next.keyboard.type('shorter');
+    await next.keyboard.press('Enter');
+    await next.locator('.out', { hasText: '20 seats is $40/seat:' }).waitFor();
+    await next.getByRole('button', { name: 'Replace draft' }).waitFor();
+    assert.doesNotMatch(calls.at(-1).body.messages[0].content, /<edit>/);
+    await next.keyboard.press('Enter');
+    await next.locator('[data-draft-editor]').waitFor({ state: 'detached' });
+    await next.keyboard.type(' Talk soon.');
+    await next.keyboard.press('ControlOrMeta+Enter');
+    await next.waitForTimeout(400);
+    assert.equal((await keptEdits()).length, 1);
+    await worker.evaluate(() => chrome.storage.local.set({ learnFromEdits: true }));
+    await next.close();
+
+    // Options says how many are kept, forgets them, and saves both switches.
+    const options = await context.newPage();
+    await options.goto(`chrome-extension://${extensionId}/options.html`);
+    await options.locator('#kept', { hasText: '1 edit kept in this browser.' }).waitFor();
+    const readyOnReply = options.getByRole('switch', { name: 'Ready on Reply' });
+    assert.equal(await readyOnReply.isChecked(), true);
+    assert.equal(await options.getByRole('switch', { name: 'Learn from my edits' }).isChecked(), true);
+    await shot(options, 'options-automatic', { whole: true });
+    await options.getByRole('button', { name: 'Forget them' }).click();
+    await options.locator('#kept', { hasText: 'No edits kept yet.' }).waitFor();
+    assert.equal(await options.getByRole('button', { name: 'Forget them' }).isVisible(), false);
+    assert.deepEqual(await keptEdits(), []);
+    await readyOnReply.click();
+    assert.equal(await options.locator('#status').innerText(), 'Unsaved changes');
+    await options.getByRole('button', { name: 'Save' }).click();
+    await options.locator('#status.ok').waitFor();
+    assert.equal(await worker.evaluate(async () => (await chrome.storage.local.get('replyOnOpen')).replyOnOpen), false);
+    await readyOnReply.click();
+    await options.getByRole('button', { name: 'Save' }).click();
+    await options.locator('#status.ok').waitFor();
+    assert.equal(await worker.evaluate(async () => (await chrome.storage.local.get('replyOnOpen')).replyOnOpen), true);
+    await options.close();
+  });
+
+  await test('the mic types what you say into the box, heard on this computer', async () => {
+    const page = await open('fresh');
+    await fakeVoice(page, 'local');
+    await toggle(page);
+    await page.getByRole('button', { name: 'Replace draft' }).waitFor();
+    await page.getByRole('button', { name: 'Speak' }).click();
+    await page.getByRole('button', { name: 'Stop speaking' }).waitFor();
+    await page.waitForFunction(() => document.querySelector('[data-draft-editor] textarea').value === 'make it shorter');
+    // On-device only, in the browser's language, listening for the names in the thread.
+    const heard = JSON.parse(await page.evaluate(() => document.documentElement.dataset.heard));
+    assert.deepEqual(heard, { lang: await page.evaluate(() => navigator.language), local: true, continuous: true, phrases: [['Dana Lee', 2]] });
+    assert.match(await page.locator('.hint').innerText(), /^Listening/);
+    await shot(page, 'panel-listening');
+    // Enter waits for the last words, then runs them.
+    await page.keyboard.press('Enter');
+    await page.locator('.out', { hasText: '20 seats is $40/seat:' }).waitFor();
+    await page.getByRole('button', { name: 'Replace draft' }).waitFor();
+    assert.equal(calls.at(-1).body.messages.at(-1).content, '<instruction>\nmake it shorter\n</instruction>');
+    assert.equal(await page.getByRole('button', { name: 'Speak' }).isVisible(), true);
+    await page.close();
+
+    // No local model for the language: it says so once, and the mic goes away.
+    const missing = await open('fresh');
+    await fakeVoice(missing, 'unavailable');
+    await toggle(missing);
+    await missing.getByRole('button', { name: 'Replace draft' }).waitFor();
+    await missing.getByRole('button', { name: 'Speak' }).click();
+    await missing.getByRole('alert').filter({ hasText: "Voice isn't available in this browser. Type instead." }).waitFor();
+    assert.equal(await missing.getByRole('button', { name: 'Speak' }).count(), 0);
+    await missing.keyboard.type('s');
+    assert.equal(await missing.getByRole('alert').count(), 0);
+    await missing.close();
+
+    // A browser that cannot promise on-device recognition gets no mic at all.
+    const none = await open('fresh');
+    await fakeVoice(none, 'none');
+    await toggle(none);
+    await none.getByRole('button', { name: 'Replace draft' }).waitFor();
+    assert.equal(await none.getByRole('button', { name: 'Speak' }).count(), 0);
+    await none.close();
   });
 
   await test('a rejected key shows the reason and a way to fix it', async () => {

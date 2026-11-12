@@ -1,8 +1,11 @@
 // Everything that knows Gmail's DOM lives here. Selectors were checked against
-// live Gmail on 2026-11-09 (new message, inline reply, open thread).
+// live Gmail on 2026-11-09 (new message, inline reply, open thread) and
+// 2026-11-11 (Send, Expand all, collapsed messages).
 import { htmlToText, textToHtml } from './format.js';
 
 export const BODY = 'div[contenteditable="true"][g_editable="true"]';
+// The Send button of a compose or reply box. "More send options" is a separate button.
+export const SEND = '[role="button"][data-tooltip^="Send"], [role="button"].aoO';
 // Where the user's own text ends: signature, or quoted / forwarded mail.
 const TAIL = '.gmail_signature_prefix, .gmail_signature, .gmail_quote, .gmail_quote_container, .gmail_attr';
 const DROPPED = 'i, em, u, s, strike, blockquote, pre, h1, h2, h3, h4, h5, h6, font, [style]';
@@ -76,11 +79,62 @@ export function replaceDraft(body, text) {
   return document.execCommand('insertHTML', false, textToHtml(text));
 }
 
+// The compose body a Send button belongs to: the only one in the nearest
+// box around it. A button with several around it belongs to none.
+export function bodyOf(button) {
+  for (let node = button.parentElement; node; node = node.parentElement) {
+    const bodies = node.querySelectorAll(BODY);
+    if (bodies.length) return bodies.length === 1 ? bodies[0] : null;
+  }
+  return null;
+}
+
 const baseSubject = (s) =>
   String(s ?? '')
     .replace(/^\s*((re|fwd?)\s*:\s*)+/i, '')
     .trim()
     .toLowerCase();
+
+export const isForward = (subject) => /^\s*fwd?\s*:/i.test(subject);
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function scrollParent(node) {
+  for (let n = node.parentElement; n; n = n.parentElement) {
+    if (/(auto|scroll)/.test(getComputedStyle(n).overflowY) && n.scrollHeight > n.clientHeight) return n;
+  }
+  return document.scrollingElement;
+}
+
+// Gmail shows older messages of a thread collapsed, with only a snippet in
+// the page. Its "Expand all" loads them (about 0.2 s on live Gmail). This
+// presses it when something is collapsed and waits for the messages, at most
+// 3 s. The part of the thread on screen stays where it was.
+export async function expandThread(anchor) {
+  const main = document.querySelector('[role="main"]');
+  const button = document.querySelector('[aria-label="Expand all"]');
+  if (!main || !button) return;
+  const collapsed = [...main.querySelectorAll('[role="listitem"]')].some((item) => !item.querySelector('.a3s'));
+  if (!collapsed) return;
+  const target = anchor?.isConnected ? anchor : [...main.querySelectorAll('.adn')].at(-1);
+  const top = target?.getBoundingClientRect().top;
+  const count = () => main.querySelectorAll('.adn .a3s').length;
+  const start = count();
+  button.click();
+  let last = start;
+  let still = 0;
+  for (let waited = 0; waited < 3000; waited += 50) {
+    await sleep(50);
+    const now = count();
+    still = now === last ? still + 50 : 0;
+    last = now;
+    if (still >= (now > start ? 200 : 800)) break;
+  }
+  if (target?.isConnected && top !== undefined) {
+    const shift = target.getBoundingClientRect().top - top;
+    if (shift) scrollParent(target).scrollTop += shift;
+  }
+}
 
 export function readContext(body) {
   let root = body;

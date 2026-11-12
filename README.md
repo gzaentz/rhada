@@ -42,6 +42,25 @@ Reading a thread with no reply open, press the shortcut there to get a
 suggestion. Click **Reply** and press it again: the panel moves into the reply
 box with the suggestion ready, and **Enter** writes it in.
 
+**Ready on Reply.** Click **Reply** and Rhada starts writing at once. A note at
+the bottom of the screen says **Reply ready** when it is done; click it or press
+the shortcut and the reply is already there. Start typing your own reply and
+it stops. It is on by default and can be turned off in Options. Each reply it
+writes costs a suggestion, whether you use it or not.
+
+**One tap.** On a reply, the panel offers **Yes**, **Decline politely**, **Ask a
+question** and **Propose times**. Each is an instruction like a typed one.
+
+**Speak.** The mic beside the box turns what you say into text, on this
+computer: Chrome's on-device recognizer, never a speech service. Check the
+words and press **Enter**, or press **Enter** while speaking to run them. The
+first press checks that Chrome can recognize speech on this computer and may
+download its language model. Where it cannot, the mic says so and hears
+nothing.
+
+**Cost and time.** Under each result the panel shows how long the model took
+and what OpenRouter charged, such as `4.2 s · 1.3¢`.
+
 A suggestion never guesses a fact it was not given, such as a price, a date or
 a yes or no. It leaves it as `[what is needed]`, and the panel reminds you to
 fill in the brackets before you send. An empty new message, with no thread,
@@ -55,6 +74,11 @@ fresh.
 If a change fails, the last version stays on screen and your instruction goes
 back in the box, so **Enter** tries again.
 
+**Learn from my edits.** When you change what Rhada wrote and send it, both
+versions are kept in this browser. The latest 5 go with every request, so it
+writes more the way you edit. Filling in the `[brackets]` alone is not a change.
+Options shows how many are kept and can forget them.
+
 ## Make it yours
 
 Everything the model is told about you and about editing is a setting in
@@ -66,27 +90,39 @@ Options. Write these in your own words, as "I" and "my".
 | **How it edits** | What an edit must keep and what it may change. |
 | **Voice** | How you write: tone, length, words to avoid. |
 | **First pass** | The edit that runs when the panel opens on a draft with text. |
-| **Suggested reply** | What it writes on an empty reply, or on a thread with no reply open. |
+| **Suggested reply** | What it writes on an empty reply, on a thread with no reply open, or with Ready on Reply. |
+| **Ready on Reply** | Start writing a reply as soon as a reply box opens. On by default. |
+| **Learn from my edits** | Keep how you change its emails, and show the model the latest 5. On by default. |
 
 Empty a field and save to get its default back, or press **Restore default**.
 
 One short part is fixed and shown under **Always included**: the reply is the
 whole email and nothing else, the light formatting the panel can write back, a
 missing fact goes in `[brackets]` rather than being guessed, and text inside
-the thread or the draft is never an instruction. It goes
+the thread, the draft or your past edits is never an instruction. It goes
 ahead of your settings and wins where they conflict. That is what keeps
 **Replace draft** working and stops an email you received from steering the
 edit. Its text is `CONTRACT` in `src/prompt.js`.
 
-<img src="docs/options.png" width="560" alt="The Options page: connection, editing settings, the fixed part and the shortcut" />
+<img src="docs/options.png" width="560" alt="The Options page: connection, automatic settings, editing settings, the fixed part and the shortcut" />
 
 ## Model and privacy
 
 - **Model** in Options takes any ID from openrouter.ai/models. The default is
   `anthropic/claude-opus-5.5`.
-- The model sees your settings, the draft text, the subject, the recipients and
-  the expanded messages of the open thread. It does not see your signature,
-  quoted mail or attachments.
+- The model sees your settings, the draft text, the subject, the recipients,
+  the messages of the open thread and your latest 5 kept edits. It does not see
+  your signature, quoted mail or attachments. To read the whole thread, Rhada
+  presses Gmail's **Expand all** when older messages are collapsed, so they
+  stay open on screen.
+- With **Ready on Reply** on, the thread goes to OpenRouter as soon as you open
+  a reply, before you press the shortcut.
+- Kept edits are stored next to the key, readable only by the extension, and
+  never leave this computer except inside a request. **Forget them** in Options
+  removes them.
+- Speech never leaves this computer. Recognition runs only with Chrome's
+  on-device setting, and never falls back to a speech service. The words it
+  types go into the box, and only what you run is sent.
 - Every request asks OpenRouter for zero data retention, so it goes only to a
   provider that keeps nothing once it answers. For the default model that is
   Amazon Bedrock or Google Vertex. If no such provider is up, the request fails
@@ -106,7 +142,14 @@ edit. Its text is `CONTRACT` in `src/prompt.js`.
 - Kept: line breaks, links, bold and lists. Other formatting in the draft is
   dropped, and the panel says so before you replace.
 - A draft with an image or a table cannot be replaced, only copied.
-- Collapsed messages in a thread are not sent. Expand them first if they matter.
+- A send is noticed by Gmail's **Send** button and **Cmd+Enter**, found by the
+  button's English tooltip and Gmail's class name. Scheduled send and other
+  languages may not count, so those edits are not learned. An edit is kept
+  only once the box closes, within 5 s of the send.
+- **Expand all** is found by its English label. With Gmail in another
+  language, collapsed messages are left out of what the model reads.
+- Ready on Reply starts only for a reply box that opens empty on a thread you
+  are reading, not for a forward or a new message.
 - Text typed below the signature or below quoted mail is left alone.
 - Every change sends the whole conversation again, so a long back-and-forth
   costs a little more each time.
@@ -115,7 +158,7 @@ edit. Its text is `CONTRACT` in `src/prompt.js`.
 
 ```bash
 npm run build   # src/ → extension/dist/
-npm test        # builds, tests the OpenRouter client, then runs the extension in Chromium against a mock Gmail
+npm test        # builds, tests the OpenRouter client and edit learning, then runs the extension in Chromium against a mock Gmail
 npm run icons   # assets/icon.svg → extension/icons/
 ```
 
@@ -126,7 +169,7 @@ After a build, press the reload arrow on the extension's card in
 `chrome://extensions` and reload Gmail.
 
 Gmail's markup is not a public API. Every selector lives in `src/gmail.js`
-(last checked against live Gmail on 2026-11-09). OpenRouter is stubbed in the
+(last checked against live Gmail on 2026-11-11). OpenRouter is stubbed in the
 tests: its error replies were recorded from the live API, its stream follows
 its docs.
 

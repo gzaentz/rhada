@@ -1,9 +1,9 @@
 /* The panel's instruction box lives in Gmail's own DOM (see src/content.js),
    so the parts of it an inline style cannot reach are styled here. */
 [data-draft-editor] > textarea::placeholder {
-  color: #8d8679;
+  color: #7a7a7a;
   opacity: 1;
 }
 [data-draft-editor] > textarea::selection {
-  background: rgba(194, 164, 103, 0.3);
+  background: rgba(255, 255, 255, 0.25);
 }

@@ -20,9 +20,26 @@ export const DEFAULTS = {
     'Polish this draft: fix typos and grammar, tighten it, and keep my meaning and voice.',
   // The reply it suggests when the panel opens on an empty reply, or on a thread with no reply open.
   replyInstruction: 'Write my reply to the latest message in the thread. Answer what it asks, briefly.',
+
+  // Start writing a reply as soon as a reply box opens, so it is ready when the panel opens.
+  replyOnOpen: true,
+  // Keep how the writer changed the panel's text before sending, and show the model the latest few.
+  learnFromEdits: true,
 };
+
+export const FLAGS = ['replyOnOpen', 'learnFromEdits'];
+
+// The writer's changes to the panel's text, newest last: { before, after, at }.
+export const EDITS_KEY = 'edits';
+export const EDITS_KEPT = 20;
+export const EDITS_SENT = 5;
 
 export async function loadSettings() {
   const stored = await chrome.storage.local.get(Object.keys(DEFAULTS));
   return { ...DEFAULTS, ...stored };
+}
+
+export async function loadEdits() {
+  const { [EDITS_KEY]: edits = [] } = await chrome.storage.local.get(EDITS_KEY);
+  return edits;
 }

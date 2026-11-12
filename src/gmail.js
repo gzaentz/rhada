@@ -1,11 +1,15 @@
 // Everything that knows Gmail's DOM lives here. Selectors were checked against
 // live Gmail on 2026-11-09 (new message, inline reply, open thread) and
-// 2026-11-11 (Send, Expand all, collapsed messages).
+// 2026-11-11 (Send, Expand all, collapsed messages) and 2026-11-12 (Schedule send).
 import { htmlToText, textToHtml } from './format.js';
 
 export const BODY = 'div[contenteditable="true"][g_editable="true"]';
 // The Send button of a compose or reply box. "More send options" is a separate button.
 export const SEND = '[role="button"][data-tooltip^="Send"], [role="button"].aoO';
+// "More send options" beside Send, and its "Schedule send" item, which Gmail
+// marks the same way in every language (checked live 2026-11-12).
+export const MORE_SEND = '[role="button"].hG';
+export const SCHEDULE = '[selector="scheduledSend"]';
 // Where the user's own text ends: signature, or quoted / forwarded mail.
 const TAIL = '.gmail_signature_prefix, .gmail_signature, .gmail_quote, .gmail_quote_container, .gmail_attr';
 const DROPPED = 'i, em, u, s, strike, blockquote, pre, h1, h2, h3, h4, h5, h6, font, [style]';

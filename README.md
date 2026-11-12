@@ -157,9 +157,9 @@ edit. Its text is `CONTRACT` in `src/prompt.js`.
   draft is dropped, and the panel says so before you replace.
 - A draft with a pasted image or a table cannot be replaced, only copied, so
   nothing in it is lost.
-- A send is noticed by Gmail's **Send** button (in any language) and
-  **Cmd+Enter**. Scheduled send is not noticed yet, so those edits are not
-  learned. An edit is kept only once the box closes, within 5 s of the send.
+- A send is noticed by Gmail's **Send** button, **Cmd+Enter** and **Schedule
+  send**, in any language. An edit is kept only once the box closes: within
+  5 s of a send, or 2 minutes of choosing Schedule send.
 - **Expand all** is found by its English label. With Gmail in another
   language, collapsed messages are left out of what the model reads.
 - On a thread longer than about 40,000 tokens, the oldest messages are left

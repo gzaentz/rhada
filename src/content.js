@@ -1,4 +1,4 @@
-import { BODY, SEND, bodyOf, expandThread, isForward, readContext, readDraft, readOpenThread, replaceDraft, threadKey } from './gmail.js';
+import { BODY, MORE_SEND, SCHEDULE, SEND, bodyOf, expandThread, isForward, readContext, readDraft, readOpenThread, replaceDraft, threadKey } from './gmail.js';
 import { textToHtml, textToNodes } from './format.js';
 import { BLANK } from './edits.js';
 import { createDictation } from './dictation.js';
@@ -349,17 +349,28 @@ function onInput(e) {
 // held up or changed.
 
 const SENT_WITHIN = 5000;
+// Schedule send first asks when: the box closes once a time is picked.
+const SCHEDULED_WITHIN = 120_000;
+// The box whose "More send options" menu was opened last.
+let scheduling = null;
 
 function onSend(e) {
   if (!(e.target instanceof Element)) return;
+  const pressed = (selector) =>
+    (e.type === 'mouseup' && e.button === 0) || ((e.key === 'Enter' || e.key === ' ') && e.type === 'keydown')
+      ? e.target.closest(selector)
+      : null;
+  const more = pressed(MORE_SEND);
+  if (more) scheduling = bodyOf(more);
   let body = null;
-  if (e.type === 'mouseup') {
-    const button = e.button === 0 ? e.target.closest(SEND) : null;
-    body = button && bodyOf(button);
-  } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+  let within = SENT_WITHIN;
+  if (pressed(SEND)) {
+    body = bodyOf(pressed(SEND));
+  } else if (pressed(SCHEDULE)) {
+    body = scheduling?.isConnected ? scheduling : null;
+    within = SCHEDULED_WITHIN;
+  } else if (e.type === 'keydown' && e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
     body = e.target.closest(BODY);
-  } else if ((e.key === 'Enter' || e.key === ' ') && e.target.closest(SEND)) {
-    body = bodyOf(e.target.closest(SEND));
   }
   const wrote = body && written.get(body);
   if (!wrote || wrote.sending) return;
@@ -373,7 +384,7 @@ function onSend(e) {
       clearInterval(timer);
       written.delete(body);
       tell({ type: 'learn', before: wrote.text, after });
-    } else if (Date.now() - started > SENT_WITHIN) {
+    } else if (Date.now() - started > within) {
       clearInterval(timer);
       wrote.sending = false;
     }

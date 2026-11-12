@@ -57,6 +57,7 @@ const composeBox = (name, subject) => `<table><tbody><tr><td class="I5">
     </form>
     <div class="Am aiL Al editable" role="textbox" aria-label="Message Body" aria-multiline="true" contenteditable="true" g_editable="true" style="min-height:120px">${BODIES[name]}</div>
     <div role="button" class="T-I J-J5-Ji aoO v7 T-I-atl L3" tabindex="0" data-tooltip="Send ‪(⌘Enter)‬" aria-label="Send ‪(⌘Enter)‬">Send</div>
+    <div role="button" class="T-I J-J5-Ji hG T-I-atl L3" tabindex="0" aria-haspopup="true" data-tooltip="More send options" aria-label="More send options">▾</div>
   </td></tr></tbody></table>`;
 
 // An earlier message, collapsed the way Gmail shows it: a snippet, no body.
@@ -129,6 +130,28 @@ function gmailPage(name, { subject = 'Re: Pricing question', older = false, mine
     window.__sent += 1;
   };
   document.addEventListener('click', (e) => e.target.closest('.aoO') && send(e.target));
+  // Like Gmail's More send options: a menu at the end of the page whose
+  // Schedule send item (here in Spanish) asks when, then closes the box.
+  document.addEventListener('click', (e) => {
+    const more = e.target.closest('.hG');
+    if (more) {
+      const menu = document.createElement('div');
+      menu.setAttribute('role', 'menu');
+      // Built node by node: the page enforces Trusted Types, like Gmail.
+      const item = document.createElement('div');
+      Object.entries({ role: 'menuitem', class: 'J-N yr', selector: 'scheduledSend' }).forEach(([k, v]) => item.setAttribute(k, v));
+      item.textContent = 'Programar envío';
+      menu.append(item);
+      menu.box = more.closest('table');
+      document.body.append(menu);
+    }
+    const item = e.target.closest('[selector="scheduledSend"]');
+    if (item) {
+      const menu = item.closest('[role="menu"]');
+      menu.remove();
+      setTimeout(() => send(menu.box), 600);
+    }
+  });
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && e.target.closest('[g_editable="true"]')) send(e.target);
   });
@@ -1076,8 +1099,26 @@ try {
     await page.close();
   });
 
+  await test('a changed draft sent with Schedule send is learned from, in any language', async () => {
+    await worker.evaluate(() => chrome.storage.local.remove(['edits', 'lessons']));
+    const page = await open('empty');
+    await toggle(page);
+    await page.getByRole('button', { name: 'Replace draft' }).waitFor();
+    await page.keyboard.press('Enter');
+    await page.locator('[data-draft-editor]').waitFor({ state: 'detached' });
+    await selectInDraft(page, 'Happy to help.');
+    await page.keyboard.type('Glad to.');
+    await page.getByRole('button', { name: 'More send options' }).click();
+    await page.getByRole('menuitem', { name: 'Programar envío' }).click();
+    assert.equal(await page.evaluate(() => window.__sent), 0, 'nothing is sent until a time is picked');
+    await waitFor(async () => (await keptEdits()).length === 1, 'the scheduled edit to be kept');
+    assert.match((await keptEdits())[0].after, /Glad to\./);
+    await waitFor(async () => (await worker.evaluate(() => chrome.storage.local.get('lessons'))).lessons === LESSONS, 'the lessons to update');
+    await page.close();
+  });
+
   await test('sending a changed draft teaches the next request; filling the blanks does not', async () => {
-    await worker.evaluate(() => chrome.storage.local.remove('edits'));
+    await worker.evaluate(() => chrome.storage.local.remove(['edits', 'lessons']));
     const write = async (page) => {
       await toggle(page);
       await page.getByRole('button', { name: 'Replace draft' }).waitFor();

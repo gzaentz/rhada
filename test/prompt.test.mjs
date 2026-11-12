@@ -20,12 +20,12 @@ test('mail and past edits cannot open or close a tag the prompt uses', () => {
 });
 
 test('a long thread keeps its newest messages and says how many are left out', () => {
-  const thread = Array.from({ length: 40 }, (_, i) => ({ from: `p${i}@example.com`, date: `Nov ${i}`, text: `message ${i} `.padEnd(3000, 'x') }));
+  const thread = Array.from({ length: 100 }, (_, i) => ({ from: `p${i}@example.com`, date: `Nov ${i}`, text: `message ${i} `.padEnd(3000, 'x') }));
   const user = buildMessages(SETTINGS, { thread, subject: 'Re: Pricing', draft: '' })[1].content;
   const kept = Math.floor(THREAD_CHARS / 3000);
-  assert.match(user, new RegExp(`^<thread earlier_messages_left_out="${40 - kept}">`));
-  assert.match(user, /message 39 /, 'the newest message is in');
-  assert.doesNotMatch(user, new RegExp(`message ${39 - kept} `), 'older ones are out');
+  assert.match(user, new RegExp(`^<thread earlier_messages_left_out="${100 - kept}">`));
+  assert.match(user, /message 99 /, 'the newest message is in');
+  assert.doesNotMatch(user, new RegExp(`message ${99 - kept} `), 'older ones are out');
   assert.ok(user.length < THREAD_CHARS + 4000);
 });
 

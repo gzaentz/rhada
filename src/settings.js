@@ -1,7 +1,7 @@
 export const DEFAULTS = {
   openRouterKey: '',
   // Any model ID from openrouter.ai/models.
-  model: 'anthropic/claude-opus-5.5',
+  model: 'anthropic/claude-haiku-5.5',
 
   // The writer's own words, sent with every edit. All of it is editable in Options.
   // Who they are and what they write about. Optional.

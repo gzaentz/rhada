@@ -234,13 +234,13 @@ try {
     const json = (status, body) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
     // A slice of the live list (2026-11-11). Public, like the model lookup.
     if (path === '/api/v1/endpoints/zdr') {
-      const endpoint = (provider, tag) => ({ name: `${provider} | anthropic/claude-opus-5.5-20260921`, model_id: 'anthropic/claude-opus-5.5', model_name: 'Anthropic: Claude Opus 5.5', provider_name: provider, tag, safety_retention: false });
+      const endpoint = (provider, tag) => ({ name: `${provider} | anthropic/claude-haiku-5.5-20261015`, model_id: 'anthropic/claude-haiku-5.5', model_name: 'Anthropic: Claude Haiku 5.5', provider_name: provider, tag, safety_retention: false });
       const safety = { name: 'Google | meta/muse-spark-1.3-20260902', model_id: 'meta/muse-spark-1.3', model_name: 'Meta: Muse Spark 1.3', provider_name: 'Google', tag: 'google-vertex/global', safety_retention: true };
       return json(200, { data: [endpoint('Amazon Bedrock', 'amazon-bedrock'), endpoint('Google', 'google-vertex/global'), safety] });
     }
     if (path.startsWith('/api/v1/models/')) {
-      return ['anthropic/claude-opus-5.5', 'example/keeps-data', 'meta/muse-spark-1.3'].some((id) => path === `/api/v1/models/${id}/endpoints`)
-        ? json(200, { data: { id: 'anthropic/claude-opus-5.5', endpoints: [] } })
+      return ['anthropic/claude-haiku-5.5', 'example/keeps-data', 'meta/muse-spark-1.3'].some((id) => path === `/api/v1/models/${id}/endpoints`)
+        ? json(200, { data: { id: 'anthropic/claude-haiku-5.5', endpoints: [] } })
         : json(404, { error: { message: 'Not Found', code: 404 } });
     }
     if (headers.authorization !== 'Bearer sk-or-test-fake') return json(401, { error: { message: 'User not found.', code: 401 } });
@@ -433,7 +433,7 @@ try {
     await page.locator('#status.bad', { hasText: 'zero data retention' }).waitFor();
     assert.equal(await page.locator('#status').innerText(), 'Saved, but no provider runs "meta/muse-spark-1.3" with zero data retention. Pick another model.');
     await page.getByRole('button', { name: 'Restore the default model' }).click();
-    assert.equal(await label('Model').inputValue(), 'anthropic/claude-opus-5.5');
+    assert.equal(await label('Model').inputValue(), 'anthropic/claude-haiku-5.5');
     assert.equal(await page.getByRole('button', { name: 'Restore the default model' }).isVisible(), false);
 
     // What the model is told about the writer and about editing is theirs to set.
@@ -486,7 +486,7 @@ try {
 
     const { headers, body, prompt } = calls.at(-1);
     assert.equal(headers.authorization, 'Bearer sk-or-test-fake');
-    assert.equal(body.model, 'anthropic/claude-opus-5.5');
+    assert.equal(body.model, 'anthropic/claude-haiku-5.5');
     assert.equal(body.stream, true);
     assert.deepEqual(body.reasoning, { effort: 'low' });
     assert.deepEqual(body.provider, { zdr: true, data_collection: 'deny', only: ['amazon-bedrock', 'google-vertex/global'] }, 'only endpoints that keep no data');

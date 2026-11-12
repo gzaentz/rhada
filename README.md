@@ -120,10 +120,12 @@ edit. Its text is `CONTRACT` in `src/prompt.js`.
 ## Model and privacy
 
 - **Model** in Options takes any ID from openrouter.ai/models. The default is
-  `anthropic/claude-opus-5.5`.
+  `anthropic/claude-haiku-5.5`: fast, cheap, and served only by Amazon Bedrock
+  and Google Vertex with zero retention. For harder emails, try
+  `anthropic/claude-sonnet-5.5`.
 - The model sees your settings, the draft text, the subject, the recipients,
-  the messages of the open thread (the newest, up to about 12,000 tokens) and
-  your latest 5 kept edits. It does not see your signature, quoted mail or
+  the messages of the open thread (the newest, up to about 40,000 tokens) and
+  your latest 5 kept edits and the lessons learned from them. It does not see your signature, quoted mail or
   attachments. To read the whole thread, Rhada presses Gmail's **Expand all**
   when older messages are collapsed, so they stay open on screen.
 - With **Ready on Reply** on, the thread goes to OpenRouter as soon as you open
@@ -151,26 +153,23 @@ edit. Its text is `CONTRACT` in `src/prompt.js`.
 
 ## Limits
 
-- Kept: line breaks, links, bold and lists. Other formatting in the draft is
-  dropped, and the panel says so before you replace.
-- A draft with an image or a table cannot be replaced, only copied.
-- A send is noticed by Gmail's **Send** button and **Cmd+Enter**, found by the
-  button's English tooltip and Gmail's class name. Scheduled send and other
-  languages may not count, so those edits are not learned. An edit is kept
-  only once the box closes, within 5 s of the send.
+- Kept: line breaks, links, bold, lists and emoji. Other formatting in the
+  draft is dropped, and the panel says so before you replace.
+- A draft with a pasted image or a table cannot be replaced, only copied, so
+  nothing in it is lost.
+- A send is noticed by Gmail's **Send** button (in any language) and
+  **Cmd+Enter**. Scheduled send is not noticed yet, so those edits are not
+  learned. An edit is kept only once the box closes, within 5 s of the send.
 - **Expand all** is found by its English label. With Gmail in another
   language, collapsed messages are left out of what the model reads.
-- Ready on Reply starts only for a reply box that opens empty on a thread you
-  are reading, not for a forward or a new message.
-- On a very long thread, the oldest messages are left out, and the model is
-  told how many.
-- Text typed below the signature or below quoted mail is left alone.
-- Every change sends the whole conversation again, so a long back-and-forth
-  costs a little more each time.
-- Stopping a request does not always stop its charge. Amazon Bedrock, which
-  serves the default model, bills the whole answer. Ready on Reply waits a
-  second after the reply opens, so a reply you start typing at once costs
-  nothing.
+- On a thread longer than about 40,000 tokens, the oldest messages are left
+  out, and the model is told how many.
+- Your signature and quoted mail are never sent or changed.
+- Every change sends the whole conversation again. With the default model a
+  change costs well under a cent.
+- Stopping a request does not always stop its charge: Amazon Bedrock bills the
+  whole answer. Ready on Reply waits a second after the reply opens, so a reply
+  you start typing at once costs nothing.
 
 ## Develop
 

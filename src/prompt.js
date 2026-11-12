@@ -27,10 +27,10 @@ const TAGS =
 const safe = (text) => String(text ?? '').replace(TAGS, '‹$1$2');
 const attr = (text) => safe(text).replace(/"/g, '&quot;');
 
-// A long thread goes in from its newest message back, up to about 12,000
+// A long thread goes in from its newest message back, up to about 40,000
 // tokens. Older messages are left out whole; the newest is cut only when it
 // alone is longer.
-export const THREAD_CHARS = 48_000;
+export const THREAD_CHARS = 160_000;
 function recent(thread) {
   const kept = [];
   let room = THREAD_CHARS;

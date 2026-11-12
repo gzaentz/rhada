@@ -18,7 +18,7 @@ export const PROBLEMS = {
 // How long Enter waits for the last words; after that they stay in the box to check.
 const FINISH_MS = 2000;
 // How strongly the recognizer leans toward a listed name (0 to 10), and how many.
-// Measured in Chrome's on-device recognizer on 2026-11-08 for the Leadpoet app.
+// Measured in Chrome's on-device recognizer on 2026-11-08.
 const NAME_BOOST = 2;
 const MAX_NAMES = 64;
 

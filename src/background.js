@@ -1,7 +1,7 @@
 import { EDITS_KEPT, EDITS_KEY, EDITS_SENT, loadEdits, loadSettings } from './settings.js';
 import { buildMessages } from './prompt.js';
 import { cleanLessons, distillMessages, lesson } from './edits.js';
-import { OpenRouterError, checkKey, costOf, endpointsFor, isAllowed, keepNothing, modelExists, streamChat, zdrList } from './openrouter.js';
+import { NetworkError, OpenRouterError, checkKey, costOf, endpointsFor, isAllowed, keepNothing, modelExists, streamChat, zdrList } from './openrouter.js';
 
 // The API key stays out of reach of scripts running inside web pages.
 chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' });
@@ -44,7 +44,7 @@ async function showGmail() {
 function describe(err, model) {
   if (err?.name === 'AbortError') return null;
   if (err?.name === 'TimeoutError') return { message: 'OpenRouter took too long. Try again.' };
-  if (err instanceof TypeError) {
+  if (err instanceof NetworkError) {
     return { message: 'Could not reach OpenRouter. Check your connection and try again.' };
   }
   if (!(err instanceof OpenRouterError)) return { message: String(err?.message || err) };
@@ -112,37 +112,48 @@ chrome.runtime.onConnect.addListener((port) => {
     try {
       // Named one by one, so nothing goes to an endpoint that keeps data,
       // whatever the OpenRouter account allows. No such endpoint: no request.
-      const { only, endpoints } = await allowedFor(settings.model);
-      if (!only.length) {
+      let text = '';
+      const attempt = async () => {
+        const { only, endpoints } = await allowedFor(settings.model);
+        if (!only.length) return null;
+        return streamChat({
+          apiKey: settings.openRouterKey,
+          signal: AbortSignal.any([cancel.signal, AbortSignal.timeout(120_000)]),
+          body: {
+            model: settings.model,
+            max_tokens: 8000,
+            // Only endpoints that keep nothing once they answer. OpenRouter
+            // fails the request rather than fall back to one that keeps data.
+            provider: { zdr: true, data_collection: 'deny', only },
+            // Models that reason before answering do it briefly: edits should feel instant.
+            reasoning: { effort: 'low' },
+            messages: buildMessages(settings, context, edits),
+          },
+          onText(piece) {
+            text += piece;
+            post({ type: 'delta', text: piece });
+          },
+          // Chrome stops an idle worker after 30 s. A message on the port while
+          // the model is still thinking keeps this one awake.
+          onWait: () => post({ type: 'wait' }),
+          // A second guard: an answer from any other provider is thrown away unread.
+          onProvider(name) {
+            if (!isAllowed(name, endpoints, only)) throw new Error(`OpenRouter sent this to ${name}, which is not on the zero-retention list. Nothing was shown.`);
+          },
+        });
+      };
+      // A connection that drops before any text came back is tried once more
+      // after a second: a brief network blip should not end the edit.
+      const result = await attempt().catch(async (err) => {
+        if (!(err instanceof NetworkError) || text || cancel.signal.aborted) throw err;
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        return attempt();
+      });
+      if (!result) {
         post({ type: 'error', code: 'settings', message: noProvider(settings.model) });
         return;
       }
-      let text = '';
-      const { finish, usage } = await streamChat({
-        apiKey: settings.openRouterKey,
-        signal: AbortSignal.any([cancel.signal, AbortSignal.timeout(120_000)]),
-        body: {
-          model: settings.model,
-          max_tokens: 8000,
-          // Only endpoints that keep nothing once they answer. OpenRouter
-          // fails the request rather than fall back to one that keeps data.
-          provider: { zdr: true, data_collection: 'deny', only },
-          // Models that reason before answering do it briefly: edits should feel instant.
-          reasoning: { effort: 'low' },
-          messages: buildMessages(settings, context, edits),
-        },
-        onText(piece) {
-          text += piece;
-          post({ type: 'delta', text: piece });
-        },
-        // Chrome stops an idle worker after 30 s. A message on the port while
-        // the model is still thinking keeps this one awake.
-        onWait: () => post({ type: 'wait' }),
-        // A second guard: an answer from any other provider is thrown away unread.
-        onProvider(name) {
-          if (!isAllowed(name, endpoints, only)) throw new Error(`OpenRouter sent this to ${name}, which is not on the zero-retention list. Nothing was shown.`);
-        },
-      });
+      const { finish, usage } = result;
       const meta = { ms: Date.now() - started, cost: costOf(usage) };
       if (finish === 'stop') post({ type: 'done', text: text.trim(), meta });
       else if (finish === 'content_filter') post({ type: 'error', message: 'The model declined to edit this draft.' });

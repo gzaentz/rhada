@@ -250,6 +250,7 @@ try {
   await context.route('https://example.com/**', (route) =>
     route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Elsewhere</title><p>Not Gmail</p>' }),
   );
+  const dropped = new Set();
   await context.route('https://openrouter.ai/**', async (route) => {
     const request = route.request();
     const headers = request.headers();
@@ -281,6 +282,11 @@ try {
     // A request the extension cancelled meanwhile has nothing left to answer.
     const answer = (text, finish) => route.fulfill({ contentType: 'text/event-stream', body: sse(text, finish) }).catch(() => {});
     if (/cut it off/.test(asked)) return answer('Hi Dana, pricing for 20 seats is', null);
+    // The connection drops before any answer: once, or every time.
+    if (/drop (once|always)/.test(asked) && (/always/.test(asked) || !dropped.has(asked))) {
+      dropped.add(asked);
+      return route.abort('connectionreset');
+    }
     if (/elsewhere/.test(asked)) return route.fulfill({ contentType: 'text/event-stream', body: sse(SHORTER, 'stop', 'Example Cloud') }).catch(() => {});
     const reply = /Write my reply/.test(asked) ? SUGGESTED : /Decline politely/.test(asked) ? DECLINED : /two options/i.test(asked) ? OPTIONS_REPLY : /the steps/.test(asked) ? STEPS : /\bPS\b/.test(asked) ? WITH_PS : /shorter/.test(asked) ? SHORTER : POLISHED;
     return answer(reply);
@@ -646,6 +652,26 @@ try {
     const messages = calls.at(-1).body.messages;
     assert.deepEqual(messages.map((m) => m.role), ['system', 'user', 'assistant', 'user'], 'the failed change left no trace');
     assert.equal(messages[3].content, '<instruction>\nshorter\n</instruction>');
+    await page.close();
+  });
+
+  await test('a dropped connection is tried once more; only a second drop says so', async () => {
+    const page = await open('fresh');
+    await toggle(page);
+    await page.getByRole('button', { name: 'Replace draft' }).waitFor();
+    const before = calls.length;
+    await page.keyboard.type('shorter, drop once');
+    await page.keyboard.press('Enter');
+    await page.locator('.out', { hasText: '20 seats is $40/seat:' }).waitFor();
+    await page.getByRole('button', { name: 'Replace draft' }).waitFor();
+    assert.equal(await page.getByRole('alert').count(), 0);
+    assert.equal(calls.length - before, 2, 'the same request, sent twice');
+
+    await page.keyboard.type('drop always');
+    await page.keyboard.press('Enter');
+    await page.getByRole('alert').waitFor();
+    assert.equal(await page.getByRole('alert').innerText(), 'Could not reach OpenRouter. Check your connection and try again.');
+    assert.equal(calls.length - before, 4, 'tried twice, not more');
     await page.close();
   });
 

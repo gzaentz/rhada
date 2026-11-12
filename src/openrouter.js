@@ -9,6 +9,14 @@ export class OpenRouterError extends Error {
   }
 }
 
+// The connection failed or dropped: no answer came back. Only this counts as
+// a network problem; any other error keeps its own message.
+export class NetworkError extends Error {}
+const offline = (err) => {
+  if (err?.name === 'AbortError' || err?.name === 'TimeoutError') return err;
+  return err instanceof TypeError ? new NetworkError(err.message) : err;
+};
+
 async function request(path, { apiKey, ...init } = {}) {
   const response = await fetch(API + path, {
     ...init,
@@ -16,6 +24,8 @@ async function request(path, { apiKey, ...init } = {}) {
       ...(apiKey && { Authorization: `Bearer ${apiKey}` }),
       ...(init.body && { 'Content-Type': 'application/json' }),
     },
+  }).catch((err) => {
+    throw offline(err);
   });
   if (response.ok) return response;
   // A failure before the stream starts is plain JSON.
@@ -48,7 +58,9 @@ export async function streamChat({ apiKey, signal, body, onText, onWait, onProvi
   }
   async function read() {
     for (;;) {
-      const { done, value } = await reader.read();
+      const { done, value } = await reader.read().catch((err) => {
+        throw offline(err);
+      });
       if (done) return { finish, usage };
       buffer += value;
       const lines = buffer.split('\n');

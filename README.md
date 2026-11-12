@@ -84,6 +84,12 @@ versions are kept in this browser. The latest 5 go with every request, so it
 writes more the way you edit. Filling in the `[brackets]` alone is not a change.
 Options shows how many are kept and can forget them.
 
+Each kept edit is also folded into **Learned from your edits**: up to 12 short
+lessons about how you write, such as tone, length and sign-offs, never names or
+facts. That takes one small request to your model per sent change, through the
+same zero-retention providers. The lessons go with every request, so what Rhada
+learns lasts beyond the latest 5 edits. Read, change or clear them in Options.
+
 ## Make it yours
 
 Everything the model is told about you and about editing is a setting in

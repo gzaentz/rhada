@@ -136,6 +136,8 @@ function gmailPage(name, { subject = 'Re: Pricing question', older = false, mine
 </body></html>`;
 }
 
+const LESSONS = '- Opens warmly and casually.\n- Keeps replies short.';
+
 const POLISHED = `Hi Dana,
 
 Thanks for reaching out. Pricing for 20 seats is **$40/seat**. See [our pricing page](https://example.com/pricing).
@@ -246,6 +248,10 @@ try {
     const body = request.postDataJSON();
     // `prompt` is the first message: the thread, the draft and the first instruction.
     calls.push({ headers, body, prompt: body.messages[1].content });
+    // Folding a sent edit into the lessons.
+    if (body.messages[0].content.startsWith('You keep a short list of lessons')) {
+      return route.fulfill({ contentType: 'text/event-stream', body: sse(LESSONS, 'stop') }).catch(() => {});
+    }
     const asked = body.messages.at(-1).content;
     const wait = /slowly/.test(asked) ? 1500 : delay;
     if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
@@ -440,7 +446,8 @@ try {
     await shot(page, 'options-unsaved');
     await save.click();
     await page.locator('#status.ok, #status.bad').waitFor();
-    assert.equal(await page.locator('#status').innerText(), 'Saved. The key works.');
+    assert.equal(await page.locator('#status').innerText(), 'Saved.');
+    await page.locator('#status.ok').waitFor({ state: 'detached', timeout: 4000 });
     const saved = await worker.evaluate(() => chrome.storage.local.get(null));
     assert.equal(saved.openRouterKey, 'sk-or-test-fake');
     assert.equal(saved.model, undefined, 'a default is not stored, so a better one later reaches it');
@@ -1102,10 +1109,17 @@ try {
     assert.equal(edit.after, 'Hi Dana,\n\nSure thing, glad you asked. For 20 seats it is [price per seat] a month.\n\n- Sam');
     await changed.close();
 
+    // The edit is folded into the lessons, which go with every request after.
+    await waitFor(async () => (await worker.evaluate(() => chrome.storage.local.get('lessons'))).lessons === LESSONS, 'the lessons to update');
+    const fold = calls.at(-1).body;
+    assert.match(fold.messages[1].content, /^<lessons>\n\(none yet\)\n<\/lessons>\n\n<before>\nHi Dana,[\s\S]*<after>\nHi Dana,\n\nSure thing/);
+    assert.deepEqual(fold.provider, { zdr: true, data_collection: 'deny', only: ['amazon-bedrock', 'google-vertex/global'] });
+
     // The next request shows the model how the writer edits.
     const next = await open('fresh');
     await toggle(next);
     await next.getByRole('button', { name: 'Replace draft' }).waitFor();
+    assert.match(calls.at(-1).body.messages[0].content, /<lessons>\n- Opens warmly and casually\.\n- Keeps replies short\.\n<\/lessons>/);
     assert.match(calls.at(-1).body.messages[0].content, /\n\n<past_edits>\n<edit>\n<before>\nHi Dana,\n\nHappy to help\.[\s\S]*<\/before>\n<after>\nHi Dana,\n\nSure thing, glad you asked\.[\s\S]*- Sam\n<\/after>\n<\/edit>\n<\/past_edits>$/);
 
     // Turned off: none are sent, and none are kept.
@@ -1128,6 +1142,10 @@ try {
     const options = await context.newPage();
     await options.goto(`chrome-extension://${extensionId}/options.html`);
     await options.locator('#kept', { hasText: '1 edit kept in this browser.' }).waitFor();
+    assert.equal(await options.locator('#lessons').inputValue(), LESSONS);
+    // A new lesson shows up while Options is open.
+    await worker.evaluate((lessons) => chrome.storage.local.set({ lessons }), `${LESSONS}\n- Signs off with a first name.`);
+    await waitFor(async () => (await options.locator('#lessons').inputValue()).endsWith('first name.'), 'new lessons to show');
     const readyOnReply = options.getByRole('switch', { name: 'Ready on Reply' });
     assert.equal(await readyOnReply.isChecked(), true);
     assert.equal(await options.getByRole('switch', { name: 'Learn from my edits' }).isChecked(), true);

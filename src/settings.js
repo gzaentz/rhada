@@ -15,6 +15,8 @@ export const DEFAULTS = {
   ].join('\n'),
   // How they write.
   rules: 'Plain English. Short sentences. Friendly and direct. No filler, no hype.',
+  // What their edits have taught, updated after each changed email they send. Editable.
+  lessons: '',
   // The edit that runs when the panel opens on a draft with text.
   defaultInstruction:
     'Polish this draft: fix typos and grammar, tighten it, and keep my meaning and voice.',

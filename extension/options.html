@@ -133,7 +133,7 @@
           <div class="switch">
             <div>
               <label for="learnFromEdits">Learn from my edits</label>
-              <p class="help" id="learnFromEditsHelp">When you change what Rhada wrote and send it, both versions are kept in this browser. The latest 5 go with each request, so it writes more the way you edit.</p>
+              <p class="help" id="learnFromEditsHelp">When you change what Rhada wrote and send it, both versions are kept in this browser. The latest 5 go with each request, and what they show about how you write is kept below in Learned from your edits.</p>
             </div>
             <input id="learnFromEdits" type="checkbox" role="switch" aria-describedby="learnFromEditsHelp" />
           </div>
@@ -162,6 +162,14 @@
             </div>
             <textarea id="rules"></textarea>
             <p class="help">How you write: tone, length, words to avoid.</p>
+          </div>
+          <div class="field">
+            <div class="row">
+              <label for="lessons">Learned from your edits</label>
+              <button type="button" class="quiet" data-restore="lessons" aria-label="Clear what was learned from your edits" hidden>Clear</button>
+            </div>
+            <textarea id="lessons" placeholder="Nothing yet. Change an email Rhada wrote, send it, and what it shows about how you write appears here."></textarea>
+            <p class="help">Updated after each email you change and send, with Learn from my edits on. Each update is one small request to your model. Change or remove any line. Sent with every edit.</p>
           </div>
           <div class="field">
             <div class="row">

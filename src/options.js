@@ -16,9 +16,12 @@ let saved = null;
 const read = () =>
   Object.fromEntries(FIELDS.map((name) => [name, isFlag(name) ? field(name).checked : field(name).value.trim() || DEFAULTS[name]]));
 
-function show(text, kind = '') {
+let fade = 0;
+function show(text, kind = '', { brief = false } = {}) {
+  clearTimeout(fade);
   status.textContent = text;
   status.className = kind;
+  if (brief) fade = setTimeout(() => show(''), 2500);
 }
 
 // "Restore default" shows only beside a field that differs from its default.
@@ -55,6 +58,15 @@ loadSettings().then((settings) => {
 count();
 chrome.storage.onChanged.addListener((changes) => {
   if (EDITS_KEY in changes) count();
+  // New lessons appear unless the field has unsaved changes of its own.
+  if ('lessons' in changes && saved) {
+    const lessons = changes.lessons.newValue ?? DEFAULTS.lessons;
+    if (field('lessons').value.trim() === saved.lessons) {
+      field('lessons').value = lessons;
+      sync();
+    }
+    saved = { ...saved, lessons };
+  }
 });
 forget.addEventListener('click', async () => {
   await chrome.storage.local.remove(EDITS_KEY);
@@ -80,7 +92,7 @@ form.addEventListener('submit', async (e) => {
   e.preventDefault();
   if (save.disabled) return;
   save.disabled = true;
-  show('Checking the key…');
+  show('Saving…');
   const values = read();
   // A setting left at its default is not stored, so a better default in a
   // later version reaches it.
@@ -97,7 +109,7 @@ form.addEventListener('submit', async (e) => {
   }
   try {
     const check = await chrome.runtime.sendMessage({ type: 'check-key' });
-    if (check.ok) show(['Saved. The key works.', check.note].filter(Boolean).join(' '), 'ok');
+    if (check.ok) show('Saved.', 'ok', { brief: true });
     else show(`Saved, but ${check.message}`, 'bad');
   } catch {
     show('Saved, but the key could not be checked. Save again to retry.', 'bad');

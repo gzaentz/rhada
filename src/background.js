@@ -1,6 +1,6 @@
 import { EDITS_KEPT, EDITS_KEY, EDITS_SENT, loadEdits, loadSettings } from './settings.js';
 import { buildMessages } from './prompt.js';
-import { lesson } from './edits.js';
+import { cleanLessons, distillMessages, lesson } from './edits.js';
 import { OpenRouterError, checkKey, costOf, endpointsFor, isAllowed, keepNothing, modelExists, streamChat, zdrList } from './openrouter.js';
 
 // The API key stays out of reach of scripts running inside web pages.
@@ -158,11 +158,45 @@ chrome.runtime.onConnect.addListener((port) => {
 // A draft Rhada wrote was sent: keep how the writer changed it, if they did.
 // Stored with the settings, so only the extension can read it.
 async function learn({ before, after }) {
-  const { learnFromEdits } = await loadSettings();
-  const edit = learnFromEdits ? lesson(before, after) : null;
+  const settings = await loadSettings();
+  const edit = settings.learnFromEdits ? lesson(before, after) : null;
   if (!edit) return;
   const edits = await loadEdits();
   await chrome.storage.local.set({ [EDITS_KEY]: [...edits, edit].slice(-EDITS_KEPT) });
+  await distill(settings, edit);
+}
+
+// Folds one edit into the lessons, through the same zero-retention providers
+// as an edit. Any failure leaves the lessons as they were.
+async function distill(settings, edit) {
+  if (!settings.openRouterKey) return;
+  const { only, endpoints } = await allowedFor(settings.model);
+  if (!only.length) return;
+  let text = '';
+  const { finish } = await streamChat({
+    apiKey: settings.openRouterKey,
+    signal: AbortSignal.timeout(60_000),
+    body: {
+      model: settings.model,
+      max_tokens: 1500,
+      provider: { zdr: true, data_collection: 'deny', only },
+      reasoning: { effort: 'low' },
+      messages: distillMessages(settings.lessons, edit),
+    },
+    onText(piece) {
+      text += piece;
+    },
+    onWait() {},
+    onProvider(name) {
+      if (!isAllowed(name, endpoints, only)) throw new Error('not on the zero-retention list');
+    },
+  });
+  const lessons = finish === 'stop' ? cleanLessons(text) : null;
+  if (!lessons) return;
+  // The writer may have changed them in Options meanwhile: theirs win.
+  const { lessons: now = '' } = await chrome.storage.local.get('lessons');
+  if (now !== settings.lessons) return;
+  await chrome.storage.local.set({ lessons });
 }
 
 let learning = Promise.resolve();

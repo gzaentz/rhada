@@ -23,7 +23,7 @@ export const FOLLOW_UP =
 
 // Stop quoted mail from closing or opening any tag the prompt uses.
 const TAGS =
-  /<(\/?)(thread|message|to|subject|draft|instruction|past_edits|edit|before|after|about_the_writer|how_to_edit|voice)\b/gi;
+  /<(\/?)(thread|message|to|subject|draft|instruction|past_edits|edit|before|after|about_the_writer|how_to_edit|voice|lessons)\b/gi;
 const safe = (text) => String(text ?? '').replace(TAGS, '‹$1$2');
 const attr = (text) => safe(text).replace(/"/g, '&quot;');
 
@@ -54,9 +54,10 @@ function systemPrompt(settings, edits) {
     section('about_the_writer', settings.about),
     section('how_to_edit', settings.principles),
     section('voice', settings.rules),
+    section('lessons', safe(settings.lessons)),
   ].filter(Boolean);
   if (own.length) {
-    parts.push(`The writer's own settings follow. In them "I", "me" and "my" mean the writer. Follow them, except where they conflict with the rules above.\n\n${own.join('\n\n')}`);
+    parts.push(`The writer's own settings follow. In them "I", "me" and "my" mean the writer. <lessons>, when present, is what their past edits taught about how they write. Follow them, except where they conflict with the rules above.\n\n${own.join('\n\n')}`);
   }
   if (edits.length) {
     const pairs = edits.map((e) => `<edit>\n<before>\n${safe(e.before)}\n</before>\n<after>\n${safe(e.after)}\n</after>\n</edit>`);

@@ -1,7 +1,7 @@
 import { EDITS_KEPT, EDITS_KEY, EDITS_SENT, loadEdits, loadSettings } from './settings.js';
 import { buildMessages } from './prompt.js';
 import { lesson } from './edits.js';
-import { OpenRouterError, checkKey, costOf, modelExists, streamChat, zdrEndpoints } from './openrouter.js';
+import { OpenRouterError, checkKey, costOf, endpointsFor, keepNothing, modelExists, streamChat, zdrList } from './openrouter.js';
 
 // The API key stays out of reach of scripts running inside web pages.
 chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' });
@@ -58,6 +58,22 @@ function describe(err, model) {
   return { message: `OpenRouter returned an error (${status}): ${message}` };
 }
 
+// The public zero-retention list, read again after 10 minutes or a failure.
+const ZDR_FRESH = 10 * 60_000;
+let zdr = null; // { at, list }
+async function allowedFor(model) {
+  if (!zdr || Date.now() - zdr.at > ZDR_FRESH) {
+    const list = zdrList({ signal: AbortSignal.timeout(10_000) });
+    zdr = { at: Date.now(), list };
+    list.catch(() => {
+      if (zdr?.list === list) zdr = null;
+    });
+  }
+  return keepNothing(endpointsFor(await zdr.list, model));
+}
+
+const noProvider = (model) => `No provider runs "${model}" with zero data retention. Pick another model in Options.`;
+
 // The shortcut as Chrome has it now, such as ⌃⇧E, or '' when none is set.
 async function shortcut() {
   const commands = await chrome.commands.getAll();
@@ -93,6 +109,13 @@ chrome.runtime.onConnect.addListener((port) => {
     if (context.prefetch) post({ type: 'start', shortcut: await shortcut() });
     const started = Date.now();
     try {
+      // Named one by one, so nothing goes to an endpoint that keeps data,
+      // whatever the OpenRouter account allows. No such endpoint: no request.
+      const only = await allowedFor(settings.model);
+      if (!only.length) {
+        post({ type: 'error', code: 'settings', message: noProvider(settings.model) });
+        return;
+      }
       let text = '';
       const { finish, usage } = await streamChat({
         apiKey: settings.openRouterKey,
@@ -100,9 +123,9 @@ chrome.runtime.onConnect.addListener((port) => {
         body: {
           model: settings.model,
           max_tokens: 8000,
-          // Only providers that keep nothing once they answer. OpenRouter
+          // Only endpoints that keep nothing once they answer. OpenRouter
           // fails the request rather than fall back to one that keeps data.
-          provider: { zdr: true },
+          provider: { zdr: true, data_collection: 'deny', only },
           // Models that reason before answering do it briefly: edits should feel instant.
           reasoning: { effort: 'low' },
           messages: buildMessages(settings, context, edits),
@@ -164,23 +187,17 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     try {
       // All three at once, and never so long that Chrome stops this worker first.
       const signal = AbortSignal.timeout(10_000);
-      const [key, exists, zdr] = await Promise.allSettled([
+      zdr = null; // read the list fresh
+      const [key, exists, allowed] = await Promise.allSettled([
         checkKey(openRouterKey, { signal }),
         modelExists(model, { signal }),
-        zdrEndpoints(model, { signal }),
+        allowedFor(model),
       ]);
       for (const check of [key, exists]) if (check.status === 'rejected') throw check.reason;
       if (!exists.value) return { ok: false, message: `OpenRouter has no model called "${model}".` };
-      if (zdr.status === 'rejected') throw zdr.reason;
-      const endpoints = zdr.value;
-      if (!endpoints.length) {
-        return { ok: false, message: `no provider with zero data retention runs "${model}". Pick another model.` };
-      }
-      // OpenRouter also routes zero-retention requests to "Safety Retention"
-      // endpoints, which keep requests to check for abuse, unless the account says ZDR only.
-      const keepers = [...new Set(endpoints.filter((e) => e.safety_retention).map((e) => e.provider_name))];
-      if (keepers.length) {
-        return { ok: true, note: `${keepers.join(' and ')} may keep these requests to check for abuse, unless your OpenRouter privacy setting is ZDR only.` };
+      if (allowed.status === 'rejected') throw allowed.reason;
+      if (!allowed.value.length) {
+        return { ok: false, message: `no provider runs "${model}" with zero data retention. Pick another model.` };
       }
       return { ok: true };
     } catch (err) {

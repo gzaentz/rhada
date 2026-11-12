@@ -2,7 +2,7 @@
 // the live API on 2026-11-09; the stream follows OpenRouter's streaming docs.
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
-import { OpenRouterError, checkKey, costOf, modelExists, streamChat, zdrEndpoints } from '../src/openrouter.js';
+import { OpenRouterError, checkKey, costOf, keepNothing, modelExists, streamChat, zdrEndpoints } from '../src/openrouter.js';
 
 const realFetch = globalThis.fetch;
 afterEach(() => {
@@ -157,4 +157,15 @@ test('finds a zero-retention provider for a model, variants included, without se
   assert.deepEqual(await zdrEndpoints('example/keeps-data'), []);
   assert.equal(asked[0].url, 'https://openrouter.ai/api/v1/endpoints/zdr');
   assert.deepEqual(asked[0].init.headers, {});
+});
+
+test('requests go only to endpoints with no retention of any kind', () => {
+  const e = (tag, safety_retention) => ({ model_id: 'example/model', tag, safety_retention });
+  // Live slugs for the default model, 2026-11-11: none keeps data.
+  assert.deepEqual(keepNothing([e('amazon-bedrock', false), e('amazon-bedrock/us-east-1', false), e('google-vertex/us', false)]), ['amazon-bedrock', 'amazon-bedrock/us-east-1', 'google-vertex/us']);
+  // Safety Retention, or no answer about it, keeps data: left out.
+  assert.deepEqual(keepNothing([e('google-vertex/global', true), e('fireworks', undefined)]), []);
+  // A bare slug would also reach a region that keeps data, so only the clean region is named.
+  assert.deepEqual(keepNothing([e('google-vertex', false), e('google-vertex/global', true), e('google-vertex/us', false)]), ['google-vertex/us']);
+  assert.deepEqual(keepNothing([e(undefined, false)]), []);
 });

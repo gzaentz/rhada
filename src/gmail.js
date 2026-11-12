@@ -9,7 +9,8 @@ export const SEND = '[role="button"][data-tooltip^="Send"], [role="button"].aoO'
 // Where the user's own text ends: signature, or quoted / forwarded mail.
 const TAIL = '.gmail_signature_prefix, .gmail_signature, .gmail_quote, .gmail_quote_container, .gmail_attr';
 const DROPPED = 'i, em, u, s, strike, blockquote, pre, h1, h2, h3, h4, h5, h6, font, [style]';
-const UNSAFE_TO_REPLACE = 'img, table';
+// An emoji from Gmail's picker is an image too, but it is read as its character.
+const UNSAFE_TO_REPLACE = 'img:not([data-emoji]), table';
 
 const hasContentBefore = (node) => {
   for (let n = node.previousSibling; n; n = n.previousSibling) {

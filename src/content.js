@@ -238,7 +238,8 @@ let lastBody = null;
 // the panel opens with it written. The worker checks the setting: until it
 // says `start`, nothing shows. Typing a reply of your own stops it.
 
-let prefetch = null; // { body, threadId, job }
+let prefetch = null; // { body, threadId, job }, plus the panel's turns when it handed one over
+let panelsOpened = 0;
 const tried = new WeakSet();
 
 const pill = (() => {
@@ -293,8 +294,10 @@ async function readyOnReply(body) {
   const threadId = threadKey(context);
   if (isForward(context.subject) || suggested?.threadId === threadId) return;
   // With the setting off or no key saved, it does nothing, not even Expand all.
+  const opened = panelsOpened;
   if (!(await ask({ type: 'ready-on-reply' }))) return;
-  if (panel || !body.isConnected || readDraft(body).text) return;
+  // A panel opened (and maybe closed) meanwhile is the writer's answer.
+  if (panel || opened !== panelsOpened || !body.isConnected || readDraft(body).text) return;
   dropPrefetch();
   const job = startJob(async () => {
     await expandThread(body);
@@ -393,29 +396,35 @@ function openPanel(body = findBody()) {
   const resumed = earlier?.text === draft.text;
   // A forward is not a reply: it never takes or leaves a suggested reply.
   const forward = Boolean(body) && isForward(context?.subject ?? '');
-  const carried = !resumed && !forward && !draft.text && threadId && suggested?.threadId === threadId ? suggested : null;
-  // Ready on Reply is still writing this box's reply: show it as it arrives.
-  // A finished one is picked up through `suggested`; a later thread's reply
-  // may have replaced that, and then this box asks again.
-  const live =
-    !resumed && !carried && !forward && !draft.text && prefetch?.body === body && prefetch.threadId === threadId && prefetch.job.status === 'loading'
-      ? prefetch.job
+  // Still being written for this box (Ready on Reply, or a panel that moved
+  // here): show it as it arrives. A finished one is picked up through
+  // `suggested`; a later thread's reply may have replaced that, and then
+  // this box asks again.
+  const handed =
+    !resumed && !forward && !draft.text && prefetch?.body === body && prefetch.threadId === threadId && prefetch.job.status === 'loading'
+      ? prefetch
       : null;
+  const live = handed?.job ?? null;
+  const carried = !live && !resumed && !forward && !draft.text && threadId && suggested?.threadId === threadId ? suggested : null;
+  panelsOpened += 1;
   // A box the panel opened on never starts Ready on Reply later, even after Esc.
   if (body) tried.add(body);
   if (body && prefetch?.body === body) {
     if (!live) prefetch.job.cancel();
     prefetch = null;
   }
+  // Where the cursor was in the draft, to put it back on Esc.
+  const selection = getSelection();
+  const caret = body && selection.rangeCount && body.contains(selection.getRangeAt(0).startContainer) ? selection.getRangeAt(0).cloneRange() : null;
   const state = {
     status: carried ? 'done' : context ? 'idle' : 'nobody', // idle | loading | done | nobody
     // The draft as it was before any edit, and every finished edit since:
     // { instruction, result, meta }. Each request sends all of it.
     original: resumed ? earlier.original : draft.text,
-    turns: [...(resumed ? earlier.turns : carried ? carried.turns : [])],
+    turns: [...(resumed ? earlier.turns : carried ? carried.turns : (handed?.turns ?? []))],
     // The version on screen, ready to replace the draft.
-    result: carried ? carried.turns.at(-1).result : '',
-    meta: carried ? carried.turns.at(-1).meta : null,
+    result: carried ? carried.turns.at(-1).result : (handed?.result ?? ''),
+    meta: carried ? carried.turns.at(-1).meta : (handed?.meta ?? null),
     problem: null, // { message, code } while the last request has failed
     lastInstruction: '',
     writeFailed: false,
@@ -469,6 +478,7 @@ function openPanel(body = findBody()) {
   foot.append(hint, meta, second, primary);
   const card = el('div', { className: 'card' });
   card.setAttribute('role', 'dialog');
+  card.setAttribute('aria-modal', 'true');
   card.setAttribute('aria-label', 'Edit draft');
   card.append(top, chips, notice, out, note, foot);
   const shadow = host.attachShadow({ mode: 'open' });
@@ -678,6 +688,17 @@ function openPanel(body = findBody()) {
     if (e.key === 'Escape') {
       e.preventDefault();
       close();
+    } else if (e.key === 'Tab') {
+      // Tab goes round the panel. Past its edge, keys would reach Gmail.
+      const stops = [input, micButton, optionsButton, closeButton, ...chips.querySelectorAll('button'), second, primary].filter(
+        (stop) => stop.isConnected && !stop.disabled && stop.getClientRects().length,
+      );
+      const at = stops.indexOf(e.composedPath()[0]);
+      const next = e.shiftKey ? (at <= 0 ? stops.at(-1) : null) : at === stops.length - 1 || at < 0 ? stops[0] : null;
+      if (next) {
+        e.preventDefault();
+        next.focus();
+      }
     } else if (e.key === 'Enter' && !e.shiftKey && e.target === input) {
       e.preventDefault();
       submit();
@@ -696,7 +717,12 @@ function openPanel(body = findBody()) {
     for (const type of KEY_EVENTS) window.removeEventListener(type, onKey, true);
     host.remove();
     panel = null;
-    if (refocus && body?.isConnected) body.focus();
+    if (!refocus || !body?.isConnected) return;
+    body.focus();
+    if (caret && body.contains(caret.startContainer)) {
+      selection.removeAllRanges();
+      selection.addRange(caret);
+    }
   }
 
   primary.addEventListener('click', replace);
@@ -740,9 +766,9 @@ function openPanel(body = findBody()) {
     // A suggestion still being written for the thread, to hand to its reply box.
     handOff() {
       if (state.status !== 'loading' || state.original || !threadId || !state.job) return null;
-      const { job } = state;
+      const { job, turns, lastInstruction: instruction, result, meta } = state;
       state.job = null;
-      return { job, threadId };
+      return { job, threadId, turns: [...turns], instruction, result, meta };
     },
   };
 
@@ -754,7 +780,10 @@ function openPanel(body = findBody()) {
   host.append(input);
   input.focus();
   if (carried) show(state.result);
-  if (live) follow(live, '');
+  if (live) {
+    if (state.result) show(state.result);
+    follow(live, handed.instruction ?? '');
+  }
   // A draft with text gets the first pass. An empty reply gets a suggested one.
   else if (!resumed && !carried && (draft.text || context.thread.length)) run('');
   else render();

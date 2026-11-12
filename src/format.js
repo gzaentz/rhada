@@ -3,6 +3,7 @@
 
 const BLOCKS = new Set(['DIV', 'P', 'BLOCKQUOTE', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'PRE', 'TR', 'TABLE']);
 const clean = (s) => s.replace(/\s+/g, ' ').trim();
+const edges = (s) => ({ before: /^\s/.test(s) ? ' ' : '', after: /\s$/.test(s) ? ' ' : '' });
 
 export function htmlToText(root, { rich = true } = {}) {
   const lines = [];
@@ -30,21 +31,30 @@ export function htmlToText(root, { rich = true } = {}) {
 
       if (tag === 'BR') {
         push();
-      } else if (tag === 'A' && rich) {
-        const label = clean(child.textContent);
-        const href = child.getAttribute('href') || '';
-        const plain = !href || label === href || href === `mailto:${label}`;
-        cur += plain ? label : `[${label}](${href})`;
-      } else if ((tag === 'B' || tag === 'STRONG') && rich) {
-        // A link inside stays a link, and each line keeps its own bold.
-        htmlToText(child).split('\n').forEach((line, i) => {
-          if (i) push();
-          const label = line.replace(/\*\*/g, '').trim();
-          if (label) cur += `**${label}**`;
-        });
+      } else if (tag === 'IMG' && child.dataset.emoji) {
+        // Gmail's emoji picker inserts an image of the character.
+        cur += child.dataset.emoji;
+      } else if ((tag === 'A' || tag === 'B' || tag === 'STRONG') && rich && clean(child.textContent)) {
+        // Spaces at the edges stay outside the markup, so no words join.
+        const { before, after } = edges(child.textContent);
+        cur += before;
+        if (tag === 'A') {
+          const label = clean(child.textContent);
+          const href = child.getAttribute('href') || '';
+          const plain = !href || label === href || href === `mailto:${label}`;
+          cur += plain ? label : `[${label}](${href})`;
+        } else {
+          // A link inside stays a link, and each line keeps its own bold.
+          htmlToText(child).split('\n').forEach((line, i) => {
+            if (i) push();
+            const label = line.replace(/\*\*/g, '').trim();
+            if (label) cur += `**${label}**`;
+          });
+        }
+        cur += after;
       } else if (tag === 'UL' || tag === 'OL') {
         flush();
-        walk(child, { ordered: tag === 'OL', n: 0 });
+        walk(child, { ordered: tag === 'OL', n: (Number(child.getAttribute('start')) || 1) - 1 });
         flush();
       } else if (tag === 'LI') {
         flush();
@@ -104,6 +114,9 @@ export function textToNodes(text) {
     // A lone "- Sam" is a sign-off, not a list.
     if (end - i >= 2) {
       const list = document.createElement(kind === BULLET ? 'ul' : 'ol');
+      // A numbered list that carries on after a paragraph keeps its numbers.
+      const first = kind === NUMBER ? Number(/\d+/.exec(lines[i])[0]) : 1;
+      if (first !== 1) list.setAttribute('start', String(first));
       for (const line of lines.slice(i, end)) list.append(inline(document.createElement('li'), kind.exec(line)[1]));
       out.append(list);
       i = end;

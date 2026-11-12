@@ -123,15 +123,13 @@ edit. Its text is `CONTRACT` in `src/prompt.js`.
 - Speech never leaves this computer. Recognition runs only with Chrome's
   on-device setting, and never falls back to a speech service. The words it
   types go into the box, and only what you run is sent.
-- Every request asks OpenRouter for zero data retention, so it goes only to a
-  provider that keeps nothing once it answers. For the default model that is
-  Amazon Bedrock or Google Vertex. If no such provider is up, the request fails
-  instead of going to one that keeps data. **Save** in Options checks that the
-  model has one.
-- For some models, mostly on Google, OpenRouter's zero retention also allows
-  "Safety Retention": the provider keeps requests to check for abuse, never to
-  train. **Save** says when a model has it. Set **ZDR only** in your
-  OpenRouter privacy settings to rule it out. The default model has none.
+- Every request names the only endpoints it may go to: those on OpenRouter's
+  public zero-retention list that keep nothing once they answer. Endpoints
+  with "Safety Retention", which keep requests to check for abuse, are left
+  out whatever your OpenRouter privacy setting says. For the default model
+  that leaves Amazon Bedrock and Google Vertex. If none is up, or the list
+  cannot be read, the request fails instead of going anywhere else. **Save**
+  in Options checks that the model has one.
 - OpenRouter itself keeps prompts only if you turned on prompt logging in your
   OpenRouter account, under Settings → Privacy.
 - The API key is stored in Chrome's local extension storage on this computer,

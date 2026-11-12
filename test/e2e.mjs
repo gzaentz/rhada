@@ -45,6 +45,8 @@ const BODIES = {
   signatureOnly: SIGNATURE,
   // Gmail's Bold around a link, and around a line break.
   boldLink: `<div>hi dana,</div><div><b><a href="https://example.com/call">book a call</a></b></div><div><b>Monday<br>Tuesday</b></div><div><br></div>${SIGNATURE}`,
+  // Chrome's markup for bold typed with Cmd+B across a blank line, then an emoji from Gmail's picker.
+  boldSpaces: `<div>hi dana,</div><b>Agenda</b><div><b><br></b></div><div>Item one<b> Note: </b>call me <img data-emoji="👍" alt="👍" src="data:image/gif;base64,R0lGODlhAQABAAAAACw="></div><div><br></div>${SIGNATURE}`,
   image: `<div>see the chart</div><div><img alt="chart" src="data:image/gif;base64,R0lGODlhAQABAAAAACw="></div>${SIGNATURE}`,
 };
 
@@ -150,6 +152,17 @@ const SUGGESTED = `Hi Dana,
 Happy to help. For 20 seats it is [price per seat] a month.
 
 - Sam`;
+const STEPS = `Hi Dana,
+
+1. Pick a plan
+2. Add seats
+
+Then:
+
+3. Invite the team
+4. Start
+
+- Sam`;
 const OPTIONS_REPLY = `Hi Dana,
 
 Two options:
@@ -235,7 +248,7 @@ try {
     // A request the extension cancelled meanwhile has nothing left to answer.
     const answer = (text, finish) => route.fulfill({ contentType: 'text/event-stream', body: sse(text, finish) }).catch(() => {});
     if (/cut it off/.test(asked)) return answer('Hi Dana, pricing for 20 seats is', null);
-    const reply = /Write my reply/.test(asked) ? SUGGESTED : /Decline politely/.test(asked) ? DECLINED : /two options/i.test(asked) ? OPTIONS_REPLY : /\bPS\b/.test(asked) ? WITH_PS : /shorter/.test(asked) ? SHORTER : POLISHED;
+    const reply = /Write my reply/.test(asked) ? SUGGESTED : /Decline politely/.test(asked) ? DECLINED : /two options/i.test(asked) ? OPTIONS_REPLY : /the steps/.test(asked) ? STEPS : /\bPS\b/.test(asked) ? WITH_PS : /shorter/.test(asked) ? SHORTER : POLISHED;
     return answer(reply);
   });
 
@@ -402,12 +415,12 @@ try {
     await label('Model').fill('example/keeps-data');
     await save.click();
     await page.locator('#status.bad', { hasText: 'zero data retention' }).waitFor();
-    assert.equal(await page.locator('#status').innerText(), 'Saved, but no provider with zero data retention runs "example/keeps-data". Pick another model.');
-    // OpenRouter's zero retention can include Google's abuse checks: Save says so.
+    assert.equal(await page.locator('#status').innerText(), 'Saved, but no provider runs "example/keeps-data" with zero data retention. Pick another model.');
+    // Zero retention with Google's abuse checks ("Safety Retention") still keeps data, so it does not count.
     await label('Model').fill('meta/muse-spark-1.3');
     await save.click();
-    await page.locator('#status.ok').waitFor();
-    assert.equal(await page.locator('#status').innerText(), 'Saved. The key works. Google may keep these requests to check for abuse, unless your OpenRouter privacy setting is ZDR only.');
+    await page.locator('#status.bad', { hasText: 'zero data retention' }).waitFor();
+    assert.equal(await page.locator('#status').innerText(), 'Saved, but no provider runs "meta/muse-spark-1.3" with zero data retention. Pick another model.');
     await page.getByRole('button', { name: 'Restore the default model' }).click();
     assert.equal(await label('Model').inputValue(), 'anthropic/claude-opus-5.5');
     assert.equal(await page.getByRole('button', { name: 'Restore the default model' }).isVisible(), false);
@@ -464,7 +477,7 @@ try {
     assert.equal(body.model, 'anthropic/claude-opus-5.5');
     assert.equal(body.stream, true);
     assert.deepEqual(body.reasoning, { effort: 'low' });
-    assert.deepEqual(body.provider, { zdr: true }, 'only providers that keep no data');
+    assert.deepEqual(body.provider, { zdr: true, data_collection: 'deny', only: ['amazon-bedrock', 'google-vertex/global'] }, 'only endpoints that keep no data');
     assert.deepEqual(body.messages.map((m) => m.role), ['system', 'user']);
     // The system message is the fixed contract, then the writer's own settings from Options.
     const system = body.messages[0].content;
@@ -655,6 +668,31 @@ try {
     await page.close();
   });
 
+  await test('a change still being written moves to the reply box with its history', async () => {
+    const page = await context.newPage();
+    await page.goto('https://mail.google.com/mail/u/0/?case=none');
+    await toggle(page);
+    await page.getByRole('button', { name: 'Copy' }).waitFor();
+    delay = 1500;
+    const before = calls.length;
+    await page.keyboard.type('shorter');
+    await page.keyboard.press('Enter');
+    await waitFor(async () => calls.length === before + 1, 'the change to be asked for');
+    await page.getByRole('button', { name: 'Reply', exact: true }).click();
+    await toggle(page);
+    await page.getByRole('button', { name: 'Replace draft', disabled: false }).waitFor();
+    delay = PACE;
+    assert.equal(await shownText(page), rendered(SHORTER));
+    assert.equal(calls.length, before + 1, 'not paid for twice');
+    await page.keyboard.type('add a PS');
+    await page.keyboard.press('Enter');
+    await page.locator('.out', { hasText: 'PS: the trial is free.' }).waitFor();
+    const contents = calls.at(-1).body.messages.map((m) => m.content);
+    assert.ok(contents.includes(SUGGESTED) && contents.includes(SHORTER), 'the next change sees both earlier versions');
+    await page.keyboard.press('Escape');
+    await page.close();
+  });
+
   await test('with no thread and no draft, it says where to click', async () => {
     const page = await context.newPage();
     await page.goto('https://mail.google.com/mail/u/0/?case=inbox');
@@ -836,6 +874,60 @@ try {
     await page.getByRole('button', { name: 'Replace draft' }).waitFor();
     assert.match(calls.at(-1).prompt, /<draft>\nhi dana,\n\*\*\[book a call\]\(https:\/\/example\.com\/call\)\*\*\n\*\*Monday\*\*\n\*\*Tuesday\*\*\n<\/draft>/);
     await page.keyboard.press('Escape');
+    await page.close();
+  });
+
+  await test('bold keeps its spaces and blank lines, and an emoji is text', async () => {
+    const page = await open('boldSpaces');
+    await toggle(page);
+    await page.getByRole('button', { name: 'Replace draft', disabled: false }).waitFor();
+    assert.match(calls.at(-1).prompt, /<draft>\nhi dana,\n\*\*Agenda\*\*\n\nItem one \*\*Note:\*\* call me 👍\n<\/draft>/);
+    await page.keyboard.press('Escape');
+    await page.close();
+  });
+
+  await test('a numbered list that carries on keeps its numbers', async () => {
+    const page = await open('fresh');
+    await toggle(page);
+    await page.getByRole('button', { name: 'Replace draft' }).waitFor();
+    await page.keyboard.type('list the steps');
+    await page.keyboard.press('Enter');
+    await page.locator('.out', { hasText: 'Invite the team' }).waitFor();
+    await page.getByRole('button', { name: 'Replace draft' }).waitFor();
+    await page.keyboard.press('Enter');
+    await page.locator('[data-draft-editor]').waitFor({ state: 'detached' });
+    assert.match(await draftHtml(page), /<ol start="3"><li>Invite the team<\/li><li>Start<\/li><\/ol>/);
+    await page.close();
+  });
+
+  await test('Tab goes round the panel and never into Gmail', async () => {
+    const page = await open('fresh');
+    await toggle(page);
+    await page.getByRole('button', { name: 'Replace draft' }).waitFor();
+    const where = () => page.evaluate(() => {
+      const host = document.querySelector('[data-draft-editor]');
+      const active = document.activeElement === host ? host.shadowRoot.activeElement : document.activeElement;
+      return active?.getAttribute('aria-label') || active?.textContent || active?.tagName;
+    });
+    assert.equal(await where(), 'Instruction');
+    await page.keyboard.press('Shift+Tab');
+    assert.equal(await where(), 'Replace draft');
+    await page.keyboard.press('Tab');
+    assert.equal(await where(), 'Instruction');
+    assert.equal(await page.locator('[role="dialog"]').getAttribute('aria-modal'), 'true');
+    await page.keyboard.press('Escape');
+    await page.locator('[data-draft-editor]').waitFor({ state: 'detached' });
+    await page.close();
+  });
+
+  await test('Esc puts the cursor back where it was', async () => {
+    const page = await open('fresh');
+    await selectInDraft(page, 'lmk');
+    await toggle(page);
+    await page.getByRole('button', { name: 'Replace draft' }).waitFor();
+    await page.keyboard.press('Escape');
+    await page.locator('[data-draft-editor]').waitFor({ state: 'detached' });
+    assert.equal(await page.evaluate(() => getSelection().toString()), 'lmk');
     await page.close();
   });
 
@@ -1081,6 +1173,19 @@ try {
     await none.getByRole('button', { name: 'Replace draft' }).waitFor();
     assert.equal(await none.getByRole('button', { name: 'Speak' }).count(), 0);
     await none.close();
+  });
+
+  await test('a model with no endpoint that keeps nothing is never asked', async () => {
+    await worker.evaluate(() => chrome.storage.local.set({ model: 'meta/muse-spark-1.3' }));
+    const page = await open('fresh');
+    const before = calls.length;
+    await toggle(page);
+    await page.getByRole('alert').waitFor();
+    assert.equal(await page.getByRole('alert').innerText(), 'No provider runs "meta/muse-spark-1.3" with zero data retention. Pick another model in Options.');
+    assert.equal(await page.getByRole('button', { name: 'Open Options' }).isVisible(), true);
+    assert.equal(calls.length, before, 'nothing was sent');
+    await worker.evaluate(() => chrome.storage.local.remove('model'));
+    await page.close();
   });
 
   await test('a rejected key shows the reason and a way to fix it', async () => {

@@ -82,12 +82,33 @@ export async function checkKey(apiKey, { signal } = {}) {
   await request('/key', { apiKey, signal });
 }
 
-// The endpoints OpenRouter counts as zero data retention for this model, the
-// only kind requests are sent to. A public list, so the key is not sent.
-export async function zdrEndpoints(model, { signal } = {}) {
+// Every endpoint OpenRouter counts as zero data retention. A public list, so
+// the key is not sent.
+export async function zdrList({ signal } = {}) {
   const { data } = await (await request('/endpoints/zdr', { signal })).json();
+  return data;
+}
+
+// The entries of that list for one model, variants such as ":nitro" included.
+export function endpointsFor(list, model) {
   const base = model.split(':')[0];
-  return data.filter((endpoint) => endpoint.model_id === model || endpoint.model_id === base);
+  return list.filter((endpoint) => endpoint.model_id === model || endpoint.model_id === base);
+}
+
+export async function zdrEndpoints(model, { signal } = {}) {
+  return endpointsFor(await zdrList({ signal }), model);
+}
+
+// The endpoints a request may go to: zero retention and no "Safety Retention"
+// (kept to check for abuse), whatever the account's privacy setting. Each is
+// named by its slug, such as "amazon-bedrock/us-east-1". A bare provider slug
+// covers all its regions, so it is used only when none of them keeps data.
+export function keepNothing(endpoints) {
+  const keepers = endpoints.filter((e) => e.safety_retention !== false).map((e) => e.tag ?? '');
+  const clean = endpoints.filter(
+    (e) => e.safety_retention === false && e.tag && !keepers.some((tag) => tag === e.tag || tag.startsWith(`${e.tag}/`)),
+  );
+  return [...new Set(clean.map((e) => e.tag))];
 }
 
 // A public lookup, so the key is not sent. Also knows variants such as ":nitro".

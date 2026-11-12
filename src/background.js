@@ -137,6 +137,8 @@ async function learn({ before, after }) {
   await chrome.storage.local.set({ [EDITS_KEY]: [...edits, edit].slice(-EDITS_KEPT) });
 }
 
+let learning = Promise.resolve();
+
 // Options page: check the saved key and model without spending anything.
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type === 'open-options') {
@@ -144,7 +146,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return false;
   }
   if (msg?.type === 'learn') {
-    learn(msg).catch(() => {});
+    learning = learning.then(() => learn(msg)).catch(() => {});
     return false;
   }
   // Ready on Reply asks before it touches the page, so with it off nothing happens.
@@ -160,9 +162,17 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     const { openRouterKey, model } = await loadSettings();
     if (!openRouterKey) return { ok: false, message: 'No API key saved yet.' };
     try {
-      await checkKey(openRouterKey);
-      if (!(await modelExists(model))) return { ok: false, message: `OpenRouter has no model called "${model}".` };
-      const endpoints = await zdrEndpoints(model);
+      // All three at once, and never so long that Chrome stops this worker first.
+      const signal = AbortSignal.timeout(10_000);
+      const [key, exists, zdr] = await Promise.allSettled([
+        checkKey(openRouterKey, { signal }),
+        modelExists(model, { signal }),
+        zdrEndpoints(model, { signal }),
+      ]);
+      for (const check of [key, exists]) if (check.status === 'rejected') throw check.reason;
+      if (!exists.value) return { ok: false, message: `OpenRouter has no model called "${model}".` };
+      if (zdr.status === 'rejected') throw zdr.reason;
+      const endpoints = zdr.value;
       if (!endpoints.length) {
         return { ok: false, message: `no provider with zero data retention runs "${model}". Pick another model.` };
       }

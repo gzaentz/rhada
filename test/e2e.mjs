@@ -43,6 +43,8 @@ const BODIES = {
   empty: `<div><span class="jKzJCd" contenteditable="false">Press / for Help me write</span><br></div>${SIGNATURE}`,
   // The user removed the empty line above the signature.
   signatureOnly: SIGNATURE,
+  // Gmail's Bold around a link, and around a line break.
+  boldLink: `<div>hi dana,</div><div><b><a href="https://example.com/call">book a call</a></b></div><div><b>Monday<br>Tuesday</b></div><div><br></div>${SIGNATURE}`,
   image: `<div>see the chart</div><div><img alt="chart" src="data:image/gif;base64,R0lGODlhAQABAAAAACw="></div>${SIGNATURE}`,
 };
 
@@ -423,7 +425,8 @@ try {
     assert.equal(await page.locator('#status').innerText(), 'Saved. The key works.');
     const saved = await worker.evaluate(() => chrome.storage.local.get(null));
     assert.equal(saved.openRouterKey, 'sk-or-test-fake');
-    assert.equal(saved.model, 'anthropic/claude-opus-5.5');
+    assert.equal(saved.model, undefined, 'a default is not stored, so a better one later reaches it');
+    assert.equal(saved.replyOnOpen, undefined);
     assert.equal(saved.about, 'I am Sam. I run sales at Acme.');
     assert.equal(saved.principles, 'Keep every number. Never add a promise.');
 
@@ -635,6 +638,23 @@ try {
     await page.close();
   });
 
+  await test('a suggestion still being written moves to the reply box, asked once', async () => {
+    delay = 1500;
+    const page = await context.newPage();
+    await page.goto('https://mail.google.com/mail/u/0/?case=none');
+    const before = calls.length;
+    await toggle(page);
+    await waitFor(async () => calls.length === before + 1, 'the suggestion to be asked for');
+    await page.getByRole('button', { name: 'Reply', exact: true }).click();
+    await toggle(page);
+    await page.getByRole('button', { name: 'Replace draft', disabled: false }).waitFor();
+    assert.equal(await shownText(page), rendered(SUGGESTED));
+    assert.equal(calls.length, before + 1, 'not paid for twice');
+    delay = PACE;
+    await page.keyboard.press('Escape');
+    await page.close();
+  });
+
   await test('with no thread and no draft, it says where to click', async () => {
     const page = await context.newPage();
     await page.goto('https://mail.google.com/mail/u/0/?case=inbox');
@@ -776,6 +796,46 @@ try {
     await toggle(page);
     await page.getByRole('button', { name: 'Replace draft' }).waitFor();
     assert.doesNotMatch(calls.at(-1).prompt, /<thread>|Can you send pricing/);
+    await page.close();
+  });
+
+  await test('on a thread, a draft docked beside it is left alone', async () => {
+    const page = await open('fresh', '&subject=Intro');
+    const before = await draftHtml(page);
+    // The cursor leaves the draft for the thread.
+    await page.locator('h2.hP').click();
+    await toggle(page);
+    await page.getByRole('button', { name: 'Copy' }).waitFor();
+    assert.match(calls.at(-1).prompt, /<thread>[\s\S]*Can you send pricing[\s\S]*<draft>\n\n<\/draft>/);
+    assert.equal(await page.getByRole('button', { name: 'Replace draft' }).isDisabled(), true);
+    await page.keyboard.press('Escape');
+    assert.equal(await draftHtml(page), before);
+    await page.close();
+  });
+
+  await test('typing in the draft while the panel is open turns Replace off', async () => {
+    const page = await open('fresh');
+    await toggle(page);
+    await page.getByRole('button', { name: 'Replace draft' }).waitFor();
+    await page.locator('[g_editable="true"]').evaluate((body) => {
+      body.focus();
+      document.execCommand('insertText', false, 'P.S. one more thing. ');
+    });
+    const typed = await draftHtml(page);
+    await page.getByRole('button', { name: 'Replace draft' }).click();
+    await page.locator('.note', { hasText: 'The draft changed while this was open' }).waitFor();
+    assert.equal(await draftHtml(page), typed, 'what was typed is kept');
+    assert.equal(await page.getByRole('button', { name: 'Replace draft' }).isDisabled(), true);
+    await page.keyboard.press('Escape');
+    await page.close();
+  });
+
+  await test('bold around a link keeps the link, and bold lines stay lines', async () => {
+    const page = await open('boldLink');
+    await toggle(page);
+    await page.getByRole('button', { name: 'Replace draft' }).waitFor();
+    assert.match(calls.at(-1).prompt, /<draft>\nhi dana,\n\*\*\[book a call\]\(https:\/\/example\.com\/call\)\*\*\n\*\*Monday\*\*\n\*\*Tuesday\*\*\n<\/draft>/);
+    await page.keyboard.press('Escape');
     await page.close();
   });
 
@@ -975,7 +1035,9 @@ try {
     await readyOnReply.click();
     await options.getByRole('button', { name: 'Save' }).click();
     await options.locator('#status.ok').waitFor();
-    assert.equal(await worker.evaluate(async () => (await chrome.storage.local.get('replyOnOpen')).replyOnOpen), true);
+    // Back on, which is the default, so nothing is stored.
+    assert.equal(await worker.evaluate(async () => (await chrome.storage.local.get('replyOnOpen')).replyOnOpen), undefined);
+    assert.equal(await readyOnReply.isChecked(), true);
     await options.close();
   });
 

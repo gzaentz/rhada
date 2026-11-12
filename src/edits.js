@@ -5,7 +5,7 @@
 // Longer pairs are skipped rather than cut: half an email teaches the wrong thing.
 const LONGEST = 4000;
 // A [what is needed] Rhada left for the writer, not a [link](url).
-const BLANK = /\[[^\]\n]+\](?!\()/;
+export const BLANK = /\[[^\]\n]+\](?!\()/;
 const squash = (text) => text.replace(/\s+/g, ' ').trim();
 const literal = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 

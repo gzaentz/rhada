@@ -55,13 +55,16 @@ function problemFor(error) {
   return 'failed';
 }
 
+// Languages whose on-device model this page has seen ready, so each panel
+// does not ask Chrome again.
+const installed = new Set();
+
 // state: hidden | idle | preparing | listening. onUpdate runs on every change.
 export function createDictation({ lang, names = [], getText, setText, onUpdate }) {
   const Recognizer = localRecognizer();
   const Phrase = Recognizer && typeof globalThis.SpeechRecognitionPhrase === 'function' ? globalThis.SpeechRecognitionPhrase : null;
   let state = Recognizer ? 'idle' : 'hidden';
   let problem = null;
-  let ready = false; // the language model is on this device
   let namesRefused = false;
   let session = null;
   let attempt = 0; // bumped by every start and cancel, so a late setup starts nothing
@@ -181,7 +184,7 @@ export function createDictation({ lang, names = [], getText, setText, onUpdate }
       return;
     }
     const mine = ++attempt;
-    if (ready) {
+    if (installed.has(lang)) {
       problem = null;
       listen();
       return;
@@ -197,7 +200,7 @@ export function createDictation({ lang, names = [], getText, setText, onUpdate }
       )
       .catch(() => 'unavailable')
       .then((status) => {
-        if (status === 'available') ready = true;
+        if (status === 'available') installed.add(lang);
         if (attempt !== mine) return;
         if (status === 'available') listen();
         else fail('unavailable');

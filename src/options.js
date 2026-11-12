@@ -82,15 +82,25 @@ form.addEventListener('submit', async (e) => {
   save.disabled = true;
   show('Checking the key…');
   const values = read();
+  // A setting left at its default is not stored, so a better default in a
+  // later version reaches it.
+  const own = FIELDS.filter((name) => values[name] !== DEFAULTS[name]);
   try {
-    await chrome.storage.local.set(values);
+    await chrome.storage.local.set(Object.fromEntries(own.map((name) => [name, values[name]])));
+    await chrome.storage.local.remove(FIELDS.filter((name) => !own.includes(name)));
     saved = values;
     fill(values);
+  } catch (err) {
+    show(`Could not save: ${err.message}`, 'bad');
+    save.disabled = false;
+    return;
+  }
+  try {
     const check = await chrome.runtime.sendMessage({ type: 'check-key' });
     if (check.ok) show(['Saved. The key works.', check.note].filter(Boolean).join(' '), 'ok');
     else show(`Saved, but ${check.message}`, 'bad');
-  } catch (err) {
-    show(`Could not save: ${err.message}`, 'bad');
+  } catch {
+    show('Saved, but the key could not be checked. Save again to retry.', 'bad');
   } finally {
     save.disabled = false;
   }

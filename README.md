@@ -111,10 +111,10 @@ edit. Its text is `CONTRACT` in `src/prompt.js`.
 - **Model** in Options takes any ID from openrouter.ai/models. The default is
   `anthropic/claude-opus-5.5`.
 - The model sees your settings, the draft text, the subject, the recipients,
-  the messages of the open thread and your latest 5 kept edits. It does not see
-  your signature, quoted mail or attachments. To read the whole thread, Rhada
-  presses Gmail's **Expand all** when older messages are collapsed, so they
-  stay open on screen.
+  the messages of the open thread (the newest, up to about 12,000 tokens) and
+  your latest 5 kept edits. It does not see your signature, quoted mail or
+  attachments. To read the whole thread, Rhada presses Gmail's **Expand all**
+  when older messages are collapsed, so they stay open on screen.
 - With **Ready on Reply** on, the thread goes to OpenRouter as soon as you open
   a reply, before you press the shortcut.
 - Kept edits are stored next to the key, readable only by the extension, and
@@ -150,9 +150,15 @@ edit. Its text is `CONTRACT` in `src/prompt.js`.
   language, collapsed messages are left out of what the model reads.
 - Ready on Reply starts only for a reply box that opens empty on a thread you
   are reading, not for a forward or a new message.
+- On a very long thread, the oldest messages are left out, and the model is
+  told how many.
 - Text typed below the signature or below quoted mail is left alone.
 - Every change sends the whole conversation again, so a long back-and-forth
   costs a little more each time.
+- Stopping a request does not always stop its charge. Amazon Bedrock, which
+  serves the default model, bills the whole answer. Ready on Reply waits a
+  second after the reply opens, so a reply you start typing at once costs
+  nothing.
 
 ## Develop
 

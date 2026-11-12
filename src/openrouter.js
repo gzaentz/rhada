@@ -78,23 +78,23 @@ export function costOf(usage) {
 }
 
 // Throws with status 401 when OpenRouter does not accept the key. Costs nothing.
-export async function checkKey(apiKey) {
-  await request('/key', { apiKey });
+export async function checkKey(apiKey, { signal } = {}) {
+  await request('/key', { apiKey, signal });
 }
 
 // The endpoints OpenRouter counts as zero data retention for this model, the
 // only kind requests are sent to. A public list, so the key is not sent.
-export async function zdrEndpoints(model) {
-  const { data } = await (await request('/endpoints/zdr')).json();
+export async function zdrEndpoints(model, { signal } = {}) {
+  const { data } = await (await request('/endpoints/zdr', { signal })).json();
   const base = model.split(':')[0];
   return data.filter((endpoint) => endpoint.model_id === model || endpoint.model_id === base);
 }
 
 // A public lookup, so the key is not sent. Also knows variants such as ":nitro".
-export async function modelExists(model) {
+export async function modelExists(model, { signal } = {}) {
   const path = model.split('/').map(encodeURIComponent).join('/');
   try {
-    await request(`/models/${path}/endpoints`);
+    await request(`/models/${path}/endpoints`, { signal });
     return true;
   } catch (err) {
     if (err.status === 404) return false;

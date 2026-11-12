@@ -36,8 +36,12 @@ export function htmlToText(root, { rich = true } = {}) {
         const plain = !href || label === href || href === `mailto:${label}`;
         cur += plain ? label : `[${label}](${href})`;
       } else if ((tag === 'B' || tag === 'STRONG') && rich) {
-        const label = clean(child.textContent);
-        if (label) cur += `**${label}**`;
+        // A link inside stays a link, and each line keeps its own bold.
+        htmlToText(child).split('\n').forEach((line, i) => {
+          if (i) push();
+          const label = line.replace(/\*\*/g, '').trim();
+          if (label) cur += `**${label}**`;
+        });
       } else if (tag === 'UL' || tag === 'OL') {
         flush();
         walk(child, { ordered: tag === 'OL', n: 0 });

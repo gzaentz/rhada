@@ -1,5 +1,6 @@
 import { BODY, SEND, bodyOf, expandThread, isForward, readContext, readDraft, readOpenThread, replaceDraft, threadKey } from './gmail.js';
 import { textToHtml, textToNodes } from './format.js';
+import { BLANK } from './edits.js';
 import { createDictation } from './dictation.js';
 
 const FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
@@ -117,7 +118,6 @@ const CROSS = 'M4 4l8 8m0-8l-8 8';
 const MIC = 'M6 4a2 2 0 0 1 4 0v3.5a2 2 0 0 1-4 0zM3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5';
 
 // A [what is needed] the model left for the writer to fill in, not a [link](url).
-const BLANK = /\[[^\]\n]+\](?!\()/;
 const BLANKS = new RegExp(`(${BLANK.source})`, 'g');
 
 // "4.2 s · 1.3¢": how long the model took and what OpenRouter charged.
@@ -208,7 +208,10 @@ function startJob(build) {
         port.onDisconnect.addListener(() => {
           if (job.port !== port) return;
           job.port = null;
-          end('error', { message: 'Lost contact with the extension. Refresh this Gmail tab.' });
+          // Chrome stopping the worker is worth a retry; a reloaded extension is not.
+          end('error', {
+            message: chrome.runtime?.id ? 'Lost contact with Rhada. Try again.' : 'The extension was updated. Refresh this Gmail tab.',
+          });
         });
         port.postMessage(request);
       },
@@ -254,7 +257,7 @@ const pill = (() => {
       const button = el('button', { type: 'button' });
       // Clicking keeps the cursor in the reply, so the panel opens on it.
       button.addEventListener('mousedown', (e) => e.preventDefault());
-      button.addEventListener('click', () => panel || openPanel());
+      button.addEventListener('click', () => panel || openPanel(prefetch?.body.isConnected ? prefetch.body : undefined));
       const status = el('div');
       status.setAttribute('role', 'status');
       status.append(button);
@@ -312,12 +315,16 @@ async function readyOnReply(body) {
   });
 }
 
+const READY_AFTER = 1000;
+
 function onFocus(e) {
   const body = e.target instanceof Element ? e.target.closest(BODY) : null;
   if (!body) return;
   lastBody = body;
-  // Gmail fills in the reply's subject and recipients as the box opens.
-  setTimeout(() => readyOnReply(body), 250);
+  // Gmail fills in the reply's subject and recipients as the box opens. The
+  // wait also lets a writer who starts typing at once skip it: a request,
+  // once sent, is billed in full even if stopped (Bedrock cannot cancel).
+  setTimeout(() => readyOnReply(body), READY_AFTER);
 }
 
 function onInput(e) {
@@ -365,17 +372,19 @@ function onSend(e) {
 
 // ---- The panel ------------------------------------------------------------------
 
+// The draft to work on: the one with the cursor. Without one, on a thread
+// it is a reply to that thread or none, never a draft docked beside it.
 function findBody() {
   const active = document.activeElement?.closest?.(BODY);
   if (active) return active;
-  if (lastBody?.isConnected) return lastBody;
-  const all = document.querySelectorAll(BODY);
-  return all.length === 1 ? all[0] : null;
+  const last = lastBody?.isConnected ? lastBody : null;
+  const all = [...document.querySelectorAll(BODY)];
+  if (readOpenThread()) return [last, ...all].find((body) => body && readContext(body).thread.length) ?? null;
+  return last ?? (all.length === 1 ? all[0] : null);
 }
 
-function openPanel() {
+function openPanel(body = findBody()) {
   pill.hide();
-  const body = findBody();
   const draft = body ? readDraft(body) : { text: '', blocked: false, lossy: false };
   // With no draft open, a thread on screen is enough to suggest a reply.
   const context = body ? readContext(body) : readOpenThread();
@@ -383,7 +392,7 @@ function openPanel() {
   const earlier = body ? written.get(body) : null;
   const resumed = earlier?.text === draft.text;
   // A forward is not a reply: it never takes or leaves a suggested reply.
-  const forward = isForward(context?.subject ?? '');
+  const forward = Boolean(body) && isForward(context?.subject ?? '');
   const carried = !resumed && !forward && !draft.text && threadId && suggested?.threadId === threadId ? suggested : null;
   // Ready on Reply is still writing this box's reply: show it as it arrives.
   // A finished one is picked up through `suggested`; a later thread's reply
@@ -410,6 +419,7 @@ function openPanel() {
     problem: null, // { message, code } while the last request has failed
     lastInstruction: '',
     writeFailed: false,
+    draftChanged: false, // the draft was edited while the panel was open
     job: null,
   };
   // A reply to the thread on screen gets one-tap replies.
@@ -494,12 +504,15 @@ function openPanel() {
   function render() {
     const { status, problem } = state;
     const ready = status === 'done';
-    const locked = !body || draft.blocked || state.writeFailed;
+    const locked = !body || draft.blocked || state.writeFailed || state.draftChanged;
     const fix = problem?.code === 'settings';
     card.classList.toggle('loading', status === 'loading');
+    out.setAttribute('aria-busy', String(status === 'loading'));
 
-    notice.textContent =
+    const message =
       status === 'nobody' ? 'Click into a draft, then press the shortcut again.' : (problem?.message ?? dictation.problem ?? '');
+    // An alert is read out each time its text is set.
+    if (notice.textContent !== message) notice.textContent = message;
     notice.hidden = !notice.textContent;
     notice.classList.toggle('error', Boolean(problem));
 
@@ -533,6 +546,7 @@ function openPanel() {
     if (ready) {
       if (!body) about.push('To write it in, open a reply and press the shortcut again.');
       else if (state.writeFailed) about.push('Could not write into this draft. Copy the text instead.');
+      else if (state.draftChanged) about.push('The draft changed while this was open, so replacing is off. Copy the text, or open Rhada again on the new draft.');
       else if (draft.blocked) about.push('This draft has an image or table, so replacing is off. Copy the text instead.');
       else if (draft.lossy) about.push('Only links, bold and lists are kept. Other formatting in this draft will be lost.');
       if (BLANK.test(state.result)) about.push('Fill in the [brackets] before you send.');
@@ -608,7 +622,8 @@ function openPanel() {
         if (context.thread.length) {
           reading ??= expandThread(body).then(() => {
             const now = body ? (body.isConnected ? readContext(body) : null) : readOpenThread();
-            if (now && now.thread.length > context.thread.length) context.thread = now.thread;
+            const same = body || (now && threadKey(now) === threadId);
+            if (now && same && now.thread.length > context.thread.length) context.thread = now.thread;
           });
           await reading;
         }
@@ -619,7 +634,14 @@ function openPanel() {
   }
 
   function replace() {
-    if (!body || draft.blocked || state.writeFailed) return;
+    if (!body || draft.blocked || state.writeFailed || state.draftChanged) return;
+    const now = readDraft(body);
+    if (now.text !== draft.text || now.blocked !== draft.blocked) {
+      state.draftChanged = true;
+      render();
+      input.focus();
+      return;
+    }
     if (replaceDraft(body, state.result)) {
       written.set(body, { text: readDraft(body).text, original: state.original, turns: state.turns });
       if (suggested?.threadId === threadId) suggested = null;
@@ -635,6 +657,7 @@ function openPanel() {
   async function submit() {
     // Enter while speaking waits for the last words, then runs them.
     if (dictation.state === 'listening' && (await dictation.finish()) === null) return;
+    if (dictation.state === 'preparing') dictation.cancel();
     if (!host.isConnected) return;
     const instruction = input.value.trim();
     if (instruction) {
@@ -685,7 +708,7 @@ function openPanel() {
   });
   // Typing while speaking stops listening and keeps both.
   input.addEventListener('input', () => {
-    if (dictation.state === 'listening') dictation.cancel();
+    if (dictation.state === 'listening' || dictation.state === 'preparing') dictation.cancel();
     else dictation.clearProblem();
   });
   second.addEventListener('click', async () => {
@@ -711,7 +734,17 @@ function openPanel() {
 
   for (const type of KEY_EVENTS) window.addEventListener(type, onKey, true);
   document.documentElement.append(host);
-  panel = { close, onDraft: Boolean(body) };
+  panel = {
+    close,
+    onDraft: Boolean(body),
+    // A suggestion still being written for the thread, to hand to its reply box.
+    handOff() {
+      if (state.status !== 'loading' || state.original || !threadId || !state.job) return null;
+      const { job } = state;
+      state.job = null;
+      return { job, threadId };
+    },
+  };
 
   if (state.status === 'nobody') {
     render();
@@ -733,10 +766,17 @@ function onMessage(msg) {
     openPanel();
     return;
   }
-  // Pressed again from a draft, a panel that had none moves onto it.
+  // Pressed again from a draft, a panel that had none moves onto it, and
+  // takes along a suggestion it was still writing: it is not paid for twice.
   const move = !panel.onDraft && findBody();
+  const running = move && !readDraft(move).text ? panel.handOff() : null;
   panel.close();
-  if (move) openPanel();
+  if (!move) return;
+  if (running) {
+    prefetch?.job.cancel();
+    prefetch = { body: move, ...running };
+  }
+  openPanel(move);
 }
 
 // One live copy per tab. Chrome adds one as Gmail loads, and the toolbar

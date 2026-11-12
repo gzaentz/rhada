@@ -19,6 +19,26 @@ The first message holds the draft and the first instruction. Each later message 
 const TAGS =
   /<(\/?)(thread|message|to|subject|draft|instruction|past_edits|edit|before|after|about_the_writer|how_to_edit|voice)\b/gi;
 const safe = (text) => String(text ?? '').replace(TAGS, '‹$1$2');
+const attr = (text) => safe(text).replace(/"/g, '&quot;');
+
+// A long thread goes in from its newest message back, up to about 12,000
+// tokens. Older messages are left out whole; the newest is cut only when it
+// alone is longer.
+export const THREAD_CHARS = 48_000;
+function recent(thread) {
+  const kept = [];
+  let room = THREAD_CHARS;
+  for (const message of [...thread].reverse()) {
+    const text = String(message.text ?? '');
+    if (text.length > room) {
+      if (!kept.length) kept.push({ ...message, text: `${text.slice(0, room)}\n…(cut)` });
+      break;
+    }
+    kept.unshift(message);
+    room -= text.length;
+  }
+  return { kept, left: thread.length - kept.length };
+}
 
 const section = (tag, text) => (text.trim() ? `<${tag}>\n${text.trim()}\n</${tag}>` : '');
 
@@ -53,10 +73,12 @@ export function buildMessages(settings, context, edits = []) {
 
   const first = [];
   if (thread.length) {
-    const messages = thread.map(
-      (m) => `<message from="${safe(m.from)}" date="${safe(m.date)}">\n${safe(m.text)}\n</message>`,
+    const { kept, left } = recent(thread);
+    const messages = kept.map(
+      (m) => `<message from="${attr(m.from)}" date="${attr(m.date)}">\n${safe(m.text)}\n</message>`,
     );
-    first.push(`<thread>\n${messages.join('\n')}\n</thread>`);
+    const open = left ? `<thread earlier_messages_left_out="${left}">` : '<thread>';
+    first.push(`${open}\n${messages.join('\n')}\n</thread>`);
   }
   if (to.length) first.push(`<to>${safe(to.join(', '))}</to>`);
   if (subject) first.push(`<subject>${safe(subject)}</subject>`);

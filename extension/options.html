@@ -85,6 +85,21 @@
       /* Changes save as you go; this says so, then fades. */
       #status { margin-left: auto; color: var(--muted); font-size: 12.5px; transition: opacity .3s; }
       #status:empty { opacity: 0; }
+      /* One column reads top to bottom. A wide window shows it all at once:
+         the key and switches on the left, the voice on the right. */
+      form { display: flex; flex-direction: column; }
+      .side { display: contents; }
+      details { order: 1; }
+      footer { order: 2; }
+      @media (min-width: 1040px) {
+        main { max-width: 1120px; padding: 56px 40px 0; }
+        form { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: auto auto auto 1fr;
+          column-gap: 72px; align-items: start; }
+        form > section, footer { grid-column: 1; }
+        .side { display: block; grid-column: 2; grid-row: 1 / -1; }
+        textarea { max-height: 200px; }
+        footer { padding-bottom: 40px; }
+      }
       @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
     </style>
   </head>
@@ -114,6 +129,27 @@
         </section>
 
         <section>
+          <div class="group">
+            <div class="switch">
+              <div>
+                <label for="replyOnOpen">Ready on Reply</label>
+                <p class="help" id="replyOnOpenHelp">Writes a reply as soon as you open one. Each costs a suggestion, used or not.</p>
+              </div>
+              <input id="replyOnOpen" type="checkbox" role="switch" aria-describedby="replyOnOpenHelp" />
+            </div>
+            <div class="switch">
+              <div>
+                <label for="learnFromEdits">Learn from my edits</label>
+                <p class="help" id="learnFromEditsHelp">Keeps what you change before sending, and learns your voice from it.</p>
+                <div class="kept help"><span id="kept" tabindex="-1"></span><button type="button" id="forget" hidden>Forget them</button></div>
+              </div>
+              <input id="learnFromEdits" type="checkbox" role="switch" aria-describedby="learnFromEditsHelp" />
+            </div>
+          </div>
+        </section>
+
+        <div class="side">
+        <section>
           <h2>Your voice</h2>
           <div class="field">
             <div class="row"><label for="about">About you</label></div>
@@ -135,25 +171,6 @@
           </div>
         </section>
 
-        <section>
-          <div class="group">
-            <div class="switch">
-              <div>
-                <label for="replyOnOpen">Ready on Reply</label>
-                <p class="help" id="replyOnOpenHelp">Writes a reply as soon as you open one. Each costs a suggestion, used or not.</p>
-              </div>
-              <input id="replyOnOpen" type="checkbox" role="switch" aria-describedby="replyOnOpenHelp" />
-            </div>
-            <div class="switch">
-              <div>
-                <label for="learnFromEdits">Learn from my edits</label>
-                <p class="help" id="learnFromEditsHelp">Keeps what you change before sending, and learns your voice from it.</p>
-                <div class="kept help"><span id="kept" tabindex="-1"></span><button type="button" id="forget" hidden>Forget them</button></div>
-              </div>
-              <input id="learnFromEdits" type="checkbox" role="switch" aria-describedby="learnFromEditsHelp" />
-            </div>
-          </div>
-        </section>
 
         <details>
           <summary>Advanced</summary>
@@ -185,6 +202,7 @@
             <pre id="contract"></pre>
           </div>
         </details>
+        </div>
 
         <footer>
           <span id="withShortcut">Open with <kbd id="shortcut"></kbd> or the toolbar button.</span>

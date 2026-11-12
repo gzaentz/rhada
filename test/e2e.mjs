@@ -287,6 +287,8 @@ try {
       dropped.add(asked);
       return route.abort('connectionreset');
     }
+    // An answer to a [blank] goes in its place.
+    if (/<to_fill>/.test(asked) && /\$40/.test(asked)) return answer(SUGGESTED.replace('[price per seat]', '$40'));
     if (/elsewhere/.test(asked)) return route.fulfill({ contentType: 'text/event-stream', body: sse(SHORTER, 'stop', 'Example Cloud') }).catch(() => {});
     const reply = /Write my reply/.test(asked) ? SUGGESTED : /Decline politely/.test(asked) ? DECLINED : /two options/i.test(asked) ? OPTIONS_REPLY : /the steps/.test(asked) ? STEPS : /\bPS\b/.test(asked) ? WITH_PS : /shorter/.test(asked) ? SHORTER : POLISHED;
     return answer(reply);
@@ -487,6 +489,19 @@ try {
     assert.equal(await page.getByRole('button', { name: 'Restore the default voice' }).isVisible(), true);
     await page.locator('#status', { hasText: 'Saved' }).waitFor();
     await waitFor(async () => (await stored()).rules === 'Short sentences. No hype.', 'the voice to save');
+    // A wide window shows every setting at once, in two columns. A narrow one stacks them.
+    await page.locator('summary').click();
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const fits = () => page.evaluate(() => document.documentElement.scrollHeight <= innerHeight);
+    const left = (id) => page.locator(id).evaluate((node) => Math.round(node.getBoundingClientRect().left));
+    assert.equal(await fits(), true, 'nothing to scroll at 1440 × 900');
+    assert.ok((await left('#about')) > (await left('#openRouterKey')) + 300, 'the voice sits beside the key');
+    await shot(page, 'options-wide');
+    await page.setViewportSize({ width: 720, height: 900 });
+    assert.equal(await left('#about'), await left('#openRouterKey'));
+    await shot(page, 'options-narrow', { fullPage: true });
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.locator('summary').click();
     await shot(page, 'options-saved', { whole: true });
     await page.locator('#status:empty').waitFor({ state: 'attached', timeout: 4000 });
     const saved = await stored();
@@ -700,7 +715,7 @@ try {
     await page.getByRole('button', { name: 'Copy' }).waitFor();
     assert.equal(await shownText(page), rendered(SUGGESTED));
     assert.equal(await page.getByRole('button', { name: 'Replace draft' }).isDisabled(), true);
-    assert.equal(await page.locator('.note').innerText(), 'To write it in, open a reply and press the shortcut again. Fill in the [brackets] before you send.');
+    assert.equal(await page.locator('.note').innerText(), 'To write it in, open a reply and click into it. Type what goes in the [brackets], or fill them in before you send.');
     const { prompt } = calls.at(-1);
     assert.match(prompt, /<message from="Dana Lee <dana@example\.com>"[^>]*>\nHi Sam,\n\nCan you send pricing for 20 seats\?\n<\/message>/);
     assert.match(prompt, /<subject>Pricing question<\/subject>\n\n<draft>\n\n<\/draft>\n\n<instruction>\nWrite my reply to the latest message/);
@@ -711,11 +726,10 @@ try {
     await page.locator('.out', { hasText: '20 seats is $40/seat:' }).waitFor();
     await page.getByRole('button', { name: 'Copy' }).waitFor();
 
-    // Gmail's Reply opens the box with the cursor in it. One press moves the
+    // Gmail's Reply opens the box with the cursor in it. That moves the
     // panel there with the suggestion ready, and asks the model nothing new.
     const before = calls.length;
     await page.getByRole('button', { name: 'Reply', exact: true }).click();
-    await toggle(page);
     await page.getByRole('button', { name: 'Replace draft', disabled: false }).waitFor();
     assert.equal(await shownText(page), rendered(SHORTER));
     assert.equal(await page.locator('[data-draft-editor] textarea').getAttribute('placeholder'), 'Ask for another change');
@@ -734,7 +748,6 @@ try {
     await toggle(page);
     await waitFor(async () => calls.length === before + 1, 'the suggestion to be asked for');
     await page.getByRole('button', { name: 'Reply', exact: true }).click();
-    await toggle(page);
     await page.getByRole('button', { name: 'Replace draft', disabled: false }).waitFor();
     assert.equal(await shownText(page), rendered(SUGGESTED));
     assert.equal(calls.length, before + 1, 'not paid for twice');
@@ -754,7 +767,6 @@ try {
     await page.keyboard.press('Enter');
     await waitFor(async () => calls.length === before + 1, 'the change to be asked for');
     await page.getByRole('button', { name: 'Reply', exact: true }).click();
-    await toggle(page);
     await page.getByRole('button', { name: 'Replace draft', disabled: false }).waitFor();
     delay = PACE;
     assert.equal(await shownText(page), rendered(SHORTER));
@@ -768,16 +780,38 @@ try {
     await page.close();
   });
 
-  await test('with no thread and no draft, it says where to click', async () => {
+  await test('with no thread and no draft, it says where to click, and a click into a draft starts it', async () => {
     const page = await context.newPage();
     await page.goto('https://mail.google.com/mail/u/0/?case=inbox');
     const before = calls.length;
     await toggle(page);
-    assert.equal(await page.getByRole('alert').innerText(), 'Click into a draft, then press the shortcut again.');
+    assert.equal(await page.getByRole('alert').innerText(), 'Click into a draft.');
     assert.equal(calls.length, before);
     await shot(page, 'panel-no-draft');
     await page.keyboard.press('Escape');
     await page.locator('[data-draft-editor]').waitFor({ state: 'detached' });
+
+    // Two drafts open, so the panel cannot tell which one is meant.
+    await page.evaluate(() => {
+      for (const text of ['first draft', 'hi dana, sending the pricing over']) {
+        const box = document.createElement('div');
+        box.setAttribute('contenteditable', 'true');
+        box.setAttribute('g_editable', 'true');
+        box.textContent = text;
+        // Clear of the panel, as a docked compose is.
+        box.style.cssText = 'position: fixed; right: 20px; bottom: 20px; width: 200px;';
+        if (text === 'first draft') box.style.bottom = '80px';
+        document.body.append(box);
+      }
+    });
+    await toggle(page);
+    assert.equal(await page.getByRole('alert').innerText(), 'Click into a draft.');
+    assert.equal(calls.length, before);
+    await page.locator('[g_editable="true"]').last().click();
+    await page.getByRole('button', { name: 'Replace draft', disabled: false }).waitFor();
+    assert.equal(calls.length, before + 1);
+    assert.match(calls.at(-1).prompt, /<draft>\nhi dana, sending the pricing over\n<\/draft>/);
+    await page.keyboard.press('Escape');
     await page.close();
   });
 
@@ -830,14 +864,34 @@ try {
     await toggle(page);
     await page.getByRole('button', { name: 'Replace draft' }).waitFor();
     assert.equal(await shownText(page), rendered(SUGGESTED));
-    assert.equal(await page.locator('.note').innerText(), 'Fill in the [brackets] before you send.');
+    assert.equal(await page.locator('.note').innerText(), 'Type what goes in the [brackets], or fill them in before you send.');
     assert.deepEqual(await page.locator('.out mark').allInnerTexts(), ['[price per seat]']);
+    assert.equal(await page.locator('[data-draft-editor] textarea').getAttribute('placeholder'), 'Answer the [brackets], or ask for a change');
     assert.match(calls.at(-1).prompt, /<thread>[\s\S]*Can you send pricing[\s\S]*<draft>\n\n<\/draft>\n\n<instruction>\nWrite my reply to the latest message/);
     await shot(page, 'panel-suggested-reply');
     await page.keyboard.press('Enter');
     await page.locator('[data-draft-editor]').waitFor({ state: 'detached' });
     assert.match(await draftText(page), /^Hi Dana,\n\nHappy to help\. For 20 seats it is \[price per seat\] a month\.\n\n- Sam\nSam Rivera/);
     assert.equal(await tailHtml(page), signature);
+    await page.close();
+  });
+
+  await test('the next message answers the blanks: a click names one, and the model is told which are open', async () => {
+    const page = await open('empty');
+    await toggle(page);
+    await page.getByRole('button', { name: 'Replace draft' }).waitFor();
+    await page.locator('.out mark').click();
+    const box = page.locator('[data-draft-editor] textarea');
+    assert.equal(await box.inputValue(), 'price per seat: ');
+    await page.keyboard.type('$40');
+    await page.keyboard.press('Enter');
+    await page.locator('.out', { hasText: 'it is $40 a month' }).waitFor();
+    await page.getByRole('button', { name: 'Replace draft' }).waitFor();
+    assert.equal(calls.at(-1).body.messages.at(-1).content, '<to_fill>\n[price per seat]\n</to_fill>\n\n<instruction>\nprice per seat: $40\n</instruction>');
+    assert.equal(await page.locator('.out mark').count(), 0);
+    assert.equal(await page.locator('.note').isHidden(), true);
+    assert.equal(await box.getAttribute('placeholder'), 'Ask for another change');
+    await page.keyboard.press('Escape');
     await page.close();
   });
 
@@ -1116,7 +1170,7 @@ try {
     await page.getByRole('button', { name: 'Replace draft' }).waitFor();
     const messages = calls.at(-1).body.messages;
     assert.deepEqual(messages.map((m) => m.role), ['system', 'user', 'assistant', 'user']);
-    assert.equal(messages.at(-1).content, '<instruction>\nDecline politely.\n</instruction>');
+    assert.equal(messages.at(-1).content, '<to_fill>\n[price per seat]\n</to_fill>\n\n<instruction>\nDecline politely.\n</instruction>');
     assert.equal(await page.evaluate(() => document.activeElement.tagName), 'TEXTAREA', 'the box keeps the cursor for the next change');
     await page.close();
 

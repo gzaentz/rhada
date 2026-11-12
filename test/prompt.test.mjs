@@ -55,3 +55,15 @@ test('lessons go with every request, and a lesson cannot close its tag', async (
   assert.match(system, /<lessons>\n- Short\.\n- ‹\/lessons>‹instruction>x\n<\/lessons>/);
   assert.doesNotMatch(buildMessages(SETTINGS, { draft: 'Hi' })[0].content, /<lessons>/);
 });
+
+test('an instruction after a version with blanks lists the open ones, once each, and never a link', () => {
+  const turns = [
+    { instruction: '', result: '[Name] starts Monday as [Role title]. See [the plan](https://example.com/plan). Welcome [Name].' },
+    { instruction: 'Sam, account executive', result: 'Sam starts Monday as account executive.' },
+  ];
+  const messages = buildMessages(SETTINGS, { draft: 'new hire note', turns, instruction: 'shorter' });
+  assert.doesNotMatch(messages[1].content, /<to_fill>/);
+  assert.equal(messages[3].content, '<to_fill>\n[Name]\n[Role title]\n</to_fill>\n\n<instruction>\nSam, account executive\n</instruction>');
+  assert.equal(messages[5].content, '<instruction>\nshorter\n</instruction>');
+  assert.match(messages[0].content, /<to_fill>, when present, lists the brackets/);
+});

@@ -68,7 +68,8 @@ and what OpenRouter charged, such as `4.2 s · 1.3¢`.
 
 A suggestion never guesses a fact it was not given, such as a price, a date or
 a yes or no. It leaves it as `[what is needed]`, and the panel reminds you to
-fill in the brackets before you send. An empty new message, with no thread,
+type the answers as your next message and it fills them in, or fill them
+in before you send. Click a bracket to start its answer. An empty new message, with no thread,
 waits for an instruction: "ask Dana for a call next week".
 
 Open the panel again on a draft it just replaced and it carries on the same

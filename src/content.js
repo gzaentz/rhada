@@ -39,7 +39,7 @@ slot { display: block; flex: 1; min-width: 0; padding-top: 1px; }
 .out.stale { opacity: .35; }
 .out a { color: var(--bright); text-underline-offset: 2px; text-decoration-color: rgba(255, 255, 255, .4); }
 .out b { color: var(--bright); font-weight: 600; }
-.out mark { color: var(--bright); background: rgba(255, 255, 255, .14); border-radius: 3px; padding: 0 2px; }
+.out mark { cursor: pointer; color: var(--bright); background: rgba(255, 255, 255, .14); border-radius: 3px; padding: 0 2px; }
 .out ul, .out ol { margin: 0; padding-left: 22px; }
 ::selection { background: rgba(255, 255, 255, .25); }
 .note { padding: 0 18px 12px; color: var(--muted); font-size: 12px; line-height: 17px; }
@@ -333,6 +333,12 @@ function onFocus(e) {
   const body = e.target instanceof Element ? e.target.closest(BODY) : null;
   if (!body) return;
   lastBody = body;
+  // A panel with no draft takes the one clicked into, once the cursor has landed.
+  const waiting = panel;
+  if (waiting && !waiting.onDraft && (waiting.idle || readContext(body).thread.length)) {
+    setTimeout(() => panel === waiting && body.isConnected && moveTo(body), 0);
+    return;
+  }
   // Gmail fills in the reply's subject and recipients as the box opens. The
   // wait also lets a writer who starts typing at once skip it: a request,
   // once sent, is billed in full even if stopped (Bedrock cannot cancel).
@@ -525,9 +531,18 @@ function openPanel(body = findBody()) {
     const texts = [];
     while (walker.nextNode()) if (BLANK.test(walker.currentNode.data)) texts.push(walker.currentNode);
     for (const node of texts) {
-      node.replaceWith(...node.data.split(BLANKS).map((part, i) => (i % 2 ? el('mark', { textContent: part }) : part)));
+      node.replaceWith(...node.data.split(BLANKS).map((part, i) => (i % 2 ? el('mark', { textContent: part, title: 'Answer this' }) : part)));
     }
   }
+  // Clicking a blank starts its answer in the box: "Role title: ".
+  out.addEventListener('click', (e) => {
+    const blank = e.target instanceof Element && e.target.closest('mark');
+    if (!blank || state.status !== 'done') return;
+    const typed = input.value.trimEnd();
+    input.value = `${typed}${typed ? '\n' : ''}${blank.textContent.slice(1, -1)}: `;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.focus();
+  });
 
   const key = (name) => el('kbd', { textContent: name });
 
@@ -540,7 +555,7 @@ function openPanel(body = findBody()) {
     out.setAttribute('aria-busy', String(status === 'loading'));
 
     const message =
-      status === 'nobody' ? 'Click into a draft, then press the shortcut again.' : (problem?.message ?? dictation.problem ?? '');
+      status === 'nobody' ? 'Click into a draft.' : (problem?.message ?? dictation.problem ?? '');
     // An alert is read out each time its text is set.
     if (notice.textContent !== message) notice.textContent = message;
     notice.hidden = !notice.textContent;
@@ -574,17 +589,18 @@ function openPanel(body = findBody()) {
 
     const about = [];
     if (ready) {
-      if (!body) about.push('To write it in, open a reply and press the shortcut again.');
+      if (!body) about.push('To write it in, open a reply and click into it.');
       else if (state.writeFailed) about.push('Could not write into this draft. Copy the text instead.');
       else if (state.draftChanged) about.push('The draft changed while this was open, so replacing is off. Copy the text, or open Rhada again on the new draft.');
       else if (draft.blocked) about.push('This draft has an image or table, so replacing is off. Copy the text instead.');
       else if (draft.lossy) about.push('Only links, bold and lists are kept. Other formatting in this draft will be lost.');
-      if (BLANK.test(state.result)) about.push('Fill in the [brackets] before you send.');
+      if (BLANK.test(state.result)) about.push('Type what goes in the [brackets], or fill them in before you send.');
     }
     note.textContent = about.join(' ');
     note.hidden = !about.length;
 
     if (!state.original && !state.turns.length && !context?.thread.length) input.placeholder = 'Say what to write';
+    else if (ready && BLANK.test(state.result)) input.placeholder = 'Answer the [brackets], or ask for a change';
     else if (state.turns.length > 1 || resumed || carried) input.placeholder = 'Ask for another change';
     else input.placeholder = 'Ask for a change, e.g. shorter, warmer, more direct';
   }
@@ -783,6 +799,8 @@ function openPanel(body = findBody()) {
   panel = {
     close,
     onDraft: Boolean(body),
+    // Nothing on screen to work on: it waits for a draft.
+    idle: state.status === 'nobody',
     // A suggestion still being written for the thread, to hand to its reply box.
     handOff() {
       if (state.status !== 'loading' || state.original || !threadId || !state.job) return null;
@@ -818,14 +836,18 @@ function onMessage(msg) {
   // Pressed again from a draft, a panel that had none moves onto it, and
   // takes along a suggestion it was still writing: it is not paid for twice.
   const move = !panel.onDraft && findBody();
-  const running = move && !readDraft(move).text ? panel.handOff() : null;
+  if (move) moveTo(move);
+  else panel.close();
+}
+
+function moveTo(body) {
+  const running = !readDraft(body).text ? panel.handOff() : null;
   panel.close();
-  if (!move) return;
   if (running) {
     prefetch?.job.cancel();
-    prefetch = { body: move, ...running };
+    prefetch = { body, ...running };
   }
-  openPanel(move);
+  openPanel(body);
 }
 
 // One live copy per tab. Chrome adds one as Gmail loads, and the toolbar

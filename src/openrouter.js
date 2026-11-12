@@ -125,10 +125,16 @@ export async function zdrEndpoints(model, { signal } = {}) {
 // (kept to check for abuse), whatever the account's privacy setting. Each is
 // named by its slug, such as "amazon-bedrock/us-east-1". A bare provider slug
 // covers all its regions, so it is used only when none of them keeps data.
+// Service tiers (flex is slower, priority costs more) are left out: naming
+// one would opt into it.
 export function keepNothing(endpoints) {
   const keepers = endpoints.filter((e) => e.safety_retention !== false).map((e) => e.tag ?? '');
   const clean = endpoints.filter(
-    (e) => e.safety_retention === false && e.tag && !keepers.some((tag) => tag === e.tag || tag.startsWith(`${e.tag}/`)),
+    (e) =>
+      e.safety_retention === false &&
+      !e.service_tier &&
+      e.tag &&
+      !keepers.some((tag) => tag === e.tag || tag.startsWith(`${e.tag}/`)),
   );
   return [...new Set(clean.map((e) => e.tag))];
 }

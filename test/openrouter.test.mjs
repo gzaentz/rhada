@@ -168,6 +168,9 @@ test('requests go only to endpoints with no retention of any kind', () => {
   // A bare slug would also reach a region that keeps data, so only the clean region is named.
   assert.deepEqual(keepNothing([e('google-vertex', false), e('google-vertex/global', true), e('google-vertex/us', false)]), ['google-vertex/us']);
   assert.deepEqual(keepNothing([e(undefined, false)]), []);
+  // Live slugs for deepseek/deepseek-v4.1-flash, 2026-11-11: flex and priority tiers are not opted into.
+  const tier = (tag, service_tier) => ({ ...e(tag, false), service_tier });
+  assert.deepEqual(keepNothing([tier('deepinfra/fp8', null), tier('deepinfra/fp8/flex', 'flex'), tier('parasail/fast', 'priority')]), ['deepinfra/fp8']);
 });
 
 test('the provider that answered must be one of the allowed endpoints', async () => {

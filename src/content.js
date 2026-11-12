@@ -10,7 +10,7 @@ const FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, 
 const CSS = `
 :host { all: initial; position: fixed; top: 12vh; left: 50%; transform: translateX(-50%);
   z-index: 2147483647; width: min(620px, calc(100vw - 32px)); }
-.card { --fg: #ececec; --bright: #fff; --muted: #8c8c8c; --line: #1e1e1e; --line-2: #333; --danger: #f28b82;
+.card { --fg: #ececec; --bright: #fff; --muted: #8c8c8c; --line: #1e1e1e; --line-2: #333; --danger: #d9774b;
   position: relative; display: flex; flex-direction: column; max-height: 76vh; overflow: hidden;
   color-scheme: dark; color: var(--fg); background: #0a0a0a; border: 1px solid #262626; border-radius: 12px;
   box-shadow: 0 24px 64px rgba(0, 0, 0, .34), 0 4px 14px rgba(0, 0, 0, .18);

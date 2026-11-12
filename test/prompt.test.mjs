@@ -35,3 +35,17 @@ test('one message longer than the budget is cut, not dropped', () => {
   assert.match(user, /^<thread>\n<message from="lee@example.com" date="Nov 8">\nCan you send pricing\?/);
   assert.match(user, /…\(cut\)\n<\/message>/);
 });
+
+test('a message the writer sent is marked, and an empty reply to it is a follow-up', () => {
+  const thread = [
+    { from: 'Dana <dana@example.com>', date: 'd1', text: 'Pricing?' },
+    { from: 'Sam <sam@example.com>', date: 'd2', text: '$40 a seat.', mine: true },
+  ];
+  const settings = { ...SETTINGS, defaultInstruction: 'Polish.', replyInstruction: 'Reply.' };
+  const user = (context) => buildMessages(settings, context)[1].content;
+  assert.match(user({ thread }), /<message from="Sam <sam@example.com>" date="d2" writer="yes">/);
+  assert.match(user({ thread }), /<message from="Dana <dana@example.com>" date="d1">\n/);
+  assert.match(user({ thread }), /<instruction>\nMy last message has no answer yet/);
+  assert.match(user({ thread: thread.slice(0, 1) }), /<instruction>\nReply\.\n/);
+  assert.match(user({ thread, draft: 'Hi' }), /<instruction>\nPolish\.\n/);
+});

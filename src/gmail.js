@@ -167,8 +167,20 @@ export function threadKey({ subject, thread }) {
   return last ? JSON.stringify([baseSubject(subject), last.from, last.text]) : '';
 }
 
+// The signed-in address, from the tab title ("Subject - me@example.com - Gmail")
+// or the account button. Mail sent from another address of theirs is not
+// recognised as theirs.
+const ADDRESS = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+function myAddress() {
+  const fromTitle = document.title.split(' - ').map((part) => part.trim()).find((part) => ADDRESS.test(part));
+  const account = document.querySelector('a[aria-label^="Google Account"]')?.getAttribute('aria-label')?.match(/[^\s()@]+@[^\s()@]+\.[^\s()@]+/)?.[0];
+  return (fromTitle || account || '').toLowerCase();
+}
+
 // The expanded messages of the thread on screen, oldest first, quotes removed.
+// `mine` marks the ones the writer sent.
 function openThread() {
+  const me = myAddress();
   const main = document.querySelector('[role="main"]');
   const title = main?.querySelector('h2.hP')?.textContent?.trim();
   if (!title) return null;
@@ -184,6 +196,7 @@ function openThread() {
       from: name && email ? `${name} <${email}>` : name || email,
       date: message.querySelector('.g3')?.getAttribute('title') || '',
       text: htmlToText(content, { rich: false }),
+      mine: Boolean(me) && email.toLowerCase() === me,
     });
   }
   return { title, messages };

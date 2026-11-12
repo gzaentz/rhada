@@ -18,7 +18,8 @@ export const DEFAULTS = {
   // The edit that runs when the panel opens on a draft with text.
   defaultInstruction:
     'Polish this draft: fix typos and grammar, tighten it, and keep my meaning and voice.',
-  // The reply it suggests when the panel opens on an empty reply, or on a thread with no reply open.
+  // The reply it suggests when the panel opens on an empty reply, or on a thread
+  // with no reply open. When the writer sent the latest message it writes a follow-up instead.
   replyInstruction: 'Write my reply to the latest message in the thread. Answer what it asks, briefly.',
 
   // Start writing a reply as soon as a reply box opens, so it is ready when the panel opens.

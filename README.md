@@ -51,6 +51,11 @@ writes costs a suggestion, whether you use it or not.
 **One tap.** On a reply, the panel offers **Yes**, **Decline politely**, **Ask a
 question** and **Propose times**. Each is an instruction like a typed one.
 
+**Following up.** When you sent the thread's latest message, the reply it
+suggests is a short follow-up, and the buttons become **Follow up**, **One-line
+nudge** and **Propose times**. Your messages are found by the address you are
+signed in with; mail sent from another address of yours is not recognised.
+
 **Speak.** The mic beside the box turns what you say into text, on this
 computer: Chrome's on-device recognizer, never a speech service. Check the
 words and press **Enter**, or press **Enter** while speaking to run them. The

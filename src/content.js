@@ -2,6 +2,7 @@ import { BODY, SEND, bodyOf, expandThread, isForward, readContext, readDraft, re
 import { textToHtml, textToNodes } from './format.js';
 import { BLANK } from './edits.js';
 import { createDictation } from './dictation.js';
+import { FOLLOW_UP } from './prompt.js';
 
 const FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
 
@@ -96,6 +97,12 @@ const QUICK = [
   ['Decline politely', 'Decline politely.'],
   ['Ask a question', 'Reply with one short question about what they need.'],
   ['Propose times', 'Propose two or three times to talk, each as [day and time] for me to fill in.'],
+];
+// The same when the writer sent the latest message and is waiting to hear back.
+const WAITING = [
+  ['Follow up', FOLLOW_UP],
+  ['One-line nudge', 'Write a one-line follow-up that brings my last message back to their attention.'],
+  ['Propose times', QUICK[3][1]],
 ];
 
 const el = (tag, props = {}) => Object.assign(document.createElement(tag), props);
@@ -462,7 +469,7 @@ function openPanel(body = findBody()) {
   mark.setAttribute('class', 'mark');
 
   const chips = el('div', { className: 'chips', hidden: !replying });
-  for (const [label, instruction] of QUICK) {
+  for (const [label, instruction] of context?.thread.at(-1)?.mine ? WAITING : QUICK) {
     const chip = el('button', { type: 'button', className: 'chip', textContent: label });
     chip.addEventListener('click', () => {
       dictation.cancel();

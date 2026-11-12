@@ -71,12 +71,12 @@ const EXPAND_ALL = '<div role="button" tabindex="0" aria-label="Expand all" id="
 
 // `none` is a thread with no reply open yet, and a Reply button that opens one.
 // `inbox` has neither a thread nor a draft. `older` adds a collapsed message.
-function gmailPage(name, { subject = 'Re: Pricing question', older = false } = {}) {
+function gmailPage(name, { subject = 'Re: Pricing question', older = false, mine = false } = {}) {
   const compose =
     name === 'none'
       ? `<div role="button" tabindex="0" id="reply">Reply</div><template id="replyBox">${composeBox('empty', subject)}</template>`
       : composeBox(name, subject);
-  return `<!doctype html><html><head><meta charset="utf-8"><title>Mock Gmail</title><style>
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Pricing question - sam@example.com - Gmail</title><style>
   body { margin: 0; padding: 28px 56px; background: #f6f8fc; color: #202124; font: 14px/20px Arial, sans-serif; }
   [role="main"] { padding: 20px 28px 28px; border-radius: 16px; background: #fff; }
   .hP { margin: 0 0 16px; font-size: 22px; font-weight: 400; }
@@ -93,7 +93,11 @@ function gmailPage(name, { subject = 'Re: Pricing question', older = false } = {
     <span class="gD" email="dana@example.com" name="Dana Lee">Dana Lee</span>
     <span class="g3" title="Nov 8, 2026, 9:14 AM">9:14 AM</span>
     <div class="a3s aiL"><div dir="ltr">Hi Sam,<div><br></div><div>Can you send pricing for 20 seats?</div><div class="gmail_quote">an older quoted message</div></div></div>
-  </div></div></div>
+  </div></div>${mine ? `<div role="listitem"><div class="adn ads">
+    <span class="gD" email="Sam@example.com" name="Sam Rivera">Sam Rivera</span>
+    <span class="g3" title="Nov 8, 2026, 4:02 PM">4:02 PM</span>
+    <div class="a3s aiL"><div dir="ltr">Hi Dana, pricing for 20 seats is $40 a seat. Want to start this week?</div></div>
+  </div></div>` : ''}</div>
   ${compose}
 </div>`}
 <div role="combobox" aria-label="Ask Gemini" contenteditable="true"></div>
@@ -215,7 +219,7 @@ try {
     return route.fulfill({
       contentType: 'text/html',
       headers: { 'content-security-policy': "require-trusted-types-for 'script'" },
-      body: gmailPage(url.searchParams.get('case'), { subject: url.searchParams.get('subject') ?? undefined, older: url.searchParams.has('older') }),
+      body: gmailPage(url.searchParams.get('case'), { subject: url.searchParams.get('subject') ?? undefined, older: url.searchParams.has('older'), mine: url.searchParams.has('mine') }),
     });
   });
   await context.route('https://example.com/**', (route) =>
@@ -1051,6 +1055,18 @@ try {
     await draft.getByRole('button', { name: 'Replace draft' }).waitFor();
     assert.equal(await draft.locator('.chips').isVisible(), false);
     await draft.close();
+  });
+
+  await test('when the writer sent the last message, an empty reply is a follow-up', async () => {
+    const page = await open('empty', '&mine');
+    await toggle(page);
+    await page.getByRole('button', { name: 'Replace draft' }).waitFor();
+    const prompt = calls.at(-1).prompt;
+    assert.match(prompt, /<message from="Sam Rivera <Sam@example.com>" date="[^"]*" writer="yes">/);
+    assert.match(prompt, /<message from="Dana Lee <dana@example.com>" date="[^"]*">/);
+    assert.match(prompt, /<instruction>\nMy last message has no answer yet\./);
+    assert.deepEqual(await page.locator('.chips button').allInnerTexts(), ['Follow up', 'One-line nudge', 'Propose times']);
+    await page.close();
   });
 
   await test('sending a changed draft teaches the next request; filling the blanks does not', async () => {

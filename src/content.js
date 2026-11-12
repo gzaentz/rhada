@@ -10,9 +10,9 @@ const FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, 
 const CSS = `
 :host { all: initial; position: fixed; top: 12vh; left: 50%; transform: translateX(-50%);
   z-index: 2147483647; width: min(620px, calc(100vw - 32px)); }
-.card { --fg: #ececec; --bright: #fff; --muted: #8c8c8c; --line: #1e1e1e; --line-2: #333; --danger: #d9774b;
+.card { --fg: #ececec; --bright: #fff; --muted: #8c8c8c; --line: #1a1a1a; --line-2: #333; --danger: #d9774b;
   position: relative; display: flex; flex-direction: column; max-height: 76vh; overflow: hidden;
-  color-scheme: dark; color: var(--fg); background: #0a0a0a; border: 1px solid #262626; border-radius: 12px;
+  color-scheme: dark; color: var(--fg); background: #000; border: 1px solid #242424; border-radius: 14px;
   box-shadow: 0 24px 64px rgba(0, 0, 0, .34), 0 4px 14px rgba(0, 0, 0, .18);
   font: 14px/21px ${FONT}; -webkit-font-smoothing: antialiased; animation: rise .16s ease-out; }
 /* While the model works, a thin light runs along the top edge. */
@@ -108,18 +108,20 @@ const WAITING = [
 const el = (tag, props = {}) => Object.assign(document.createElement(tag), props);
 
 // A 16-unit line drawing in the current text colour.
-function icon(d) {
+function icon(d, solid = false) {
   const make = (tag, attrs) => {
     const node = document.createElementNS('http://www.w3.org/2000/svg', tag);
     for (const [name, value] of Object.entries(attrs)) node.setAttribute(name, value);
     return node;
   };
   const svg = make('svg', { viewBox: '0 0 16 16', width: 16, height: 16, 'aria-hidden': 'true' });
-  svg.append(make('path', { d, fill: 'none', stroke: 'currentColor', 'stroke-width': 1.25, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
+  if (solid) svg.append(make('path', { d, fill: 'currentColor' }));
+  else svg.append(make('path', { d, fill: 'none', stroke: 'currentColor', 'stroke-width': 1.25, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
   return svg;
 }
 // One turn of a Greek key.
-const MEANDER = 'M1.5 14.5v-13h13v10h-9v-6h5v3';
+// The mark: the horns of Crete, filled.
+const HORNS = 'M1.5 2.35C2.47 7.55 4.75 9.82 8 9.82C11.25 9.82 13.53 7.55 14.5 2.35C14.18 10.47 11.9 13.72 8 13.72C4.1 13.72 1.83 10.47 1.5 2.35Z';
 const SLIDERS = 'M2 5h6m4 0h2M2 11h2m4 0h6M12 5a2 2 0 1 1-4 0 2 2 0 0 1 4 0zM8 11a2 2 0 1 1-4 0 2 2 0 0 1 4 0z';
 const CROSS = 'M4 4l8 8m0-8l-8 8';
 const MIC = 'M6 4a2 2 0 0 1 4 0v3.5a2 2 0 0 1-4 0zM3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5';
@@ -476,7 +478,7 @@ function openPanel(body = findBody()) {
   const micButton = iconButton('Speak', MIC);
   const optionsButton = iconButton('Options', SLIDERS);
   const closeButton = iconButton('Close', CROSS);
-  const mark = icon(MEANDER);
+  const mark = icon(HORNS, true);
   mark.setAttribute('class', 'mark');
 
   const chips = el('div', { className: 'chips', hidden: !replying });

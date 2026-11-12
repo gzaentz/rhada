@@ -140,6 +140,14 @@
             <textarea id="defaultInstruction"></textarea>
             <p class="help">The edit that runs as soon as the panel opens on a draft with text.</p>
           </div>
+          <div class="field">
+            <div class="row">
+              <label for="replyInstruction">Suggested reply</label>
+              <button type="button" class="quiet" data-restore="replyInstruction" aria-label="Restore the default suggested reply" hidden>Restore default</button>
+            </div>
+            <textarea id="replyInstruction"></textarea>
+            <p class="help">What it writes when the panel opens on an empty reply, or on a thread with no reply open.</p>
+          </div>
           <details>
             <summary>Always included</summary>
             <p class="help">Sent ahead of your settings so that replacing the draft works. It cannot be changed here.</p>
@@ -149,8 +157,8 @@
 
         <section>
           <h2>Shortcut</h2>
-          <p id="withShortcut">Click into a Gmail draft and press <kbd id="shortcut"></kbd>, or click the toolbar button.</p>
-          <p id="noShortcut" hidden>No shortcut is set. Click into a Gmail draft, then click the toolbar button.</p>
+          <p id="withShortcut">In Gmail, press <kbd id="shortcut"></kbd> or click the toolbar button: in a draft to edit it, on a thread to suggest a reply.</p>
+          <p id="noShortcut" hidden>No shortcut is set. In Gmail, click the toolbar button: in a draft to edit it, on a thread to suggest a reply.</p>
           <button type="button" class="outline" id="shortcuts">Change shortcut</button>
         </section>
 

@@ -95,23 +95,41 @@ export function readContext(body) {
   }
 
   // Only send the open thread when this draft belongs to it.
-  const thread = [];
-  const main = document.querySelector('[role="main"]');
-  const title = main?.querySelector('h2.hP')?.textContent;
-  if (title && subject && baseSubject(title) === baseSubject(subject)) {
-    for (const message of main.querySelectorAll('.adn')) {
-      const content = message.querySelector('.a3s')?.cloneNode(true);
-      if (!content) continue;
-      content.querySelectorAll('.gmail_quote, .gmail_quote_container, blockquote').forEach((n) => n.remove());
-      const sender = message.querySelector('.gD');
-      const name = sender?.getAttribute('name') || '';
-      const email = sender?.getAttribute('email') || '';
-      thread.push({
-        from: name && email ? `${name} <${email}>` : name || email,
-        date: message.querySelector('.g3')?.getAttribute('title') || '',
-        text: htmlToText(content, { rich: false }),
-      });
-    }
-  }
+  const open = openThread();
+  const thread = open && subject && baseSubject(open.title) === baseSubject(subject) ? open.messages : [];
   return { subject, to: [...to], thread };
+}
+
+// With no draft open: the thread on screen, if there is one to reply to.
+export function readOpenThread() {
+  const open = openThread();
+  return open?.messages.length ? { subject: open.title, to: [], thread: open.messages } : null;
+}
+
+// The same thread seen with and without a reply box: its subject and latest message.
+export function threadKey({ subject, thread }) {
+  const last = thread.at(-1);
+  return last ? JSON.stringify([baseSubject(subject), last.from, last.text]) : '';
+}
+
+// The expanded messages of the thread on screen, oldest first, quotes removed.
+function openThread() {
+  const main = document.querySelector('[role="main"]');
+  const title = main?.querySelector('h2.hP')?.textContent?.trim();
+  if (!title) return null;
+  const messages = [];
+  for (const message of main.querySelectorAll('.adn')) {
+    const content = message.querySelector('.a3s')?.cloneNode(true);
+    if (!content) continue;
+    content.querySelectorAll('.gmail_quote, .gmail_quote_container, blockquote').forEach((n) => n.remove());
+    const sender = message.querySelector('.gD');
+    const name = sender?.getAttribute('name') || '';
+    const email = sender?.getAttribute('email') || '';
+    messages.push({
+      from: name && email ? `${name} <${email}>` : name || email,
+      date: message.querySelector('.g3')?.getAttribute('title') || '',
+      text: htmlToText(content, { rich: false }),
+    });
+  }
+  return { title, messages };
 }

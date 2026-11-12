@@ -1,7 +1,7 @@
 {
   "name": "rhada",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Edits the Gmail draft you are writing, in place.",
   "license": "MIT",
   "type": "module",

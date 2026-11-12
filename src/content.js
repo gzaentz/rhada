@@ -1,4 +1,4 @@
-import { BODY, readDraft, readContext, replaceDraft } from './gmail.js';
+import { BODY, readDraft, readContext, readOpenThread, replaceDraft, threadKey } from './gmail.js';
 import { textToHtml, textToNodes } from './format.js';
 
 const FONT = '-apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
@@ -39,6 +39,7 @@ slot { display: block; flex: 1; min-width: 0; }
 .out.stale { opacity: .38; }
 .out a { color: var(--gold); text-underline-offset: 2px; text-decoration-color: rgba(194, 164, 103, .5); }
 .out b { color: var(--bright); font-weight: 600; }
+.out mark { color: var(--gold); background: rgba(194, 164, 103, .12); border-radius: 2px; }
 .out ul, .out ol { margin: 0; padding-left: 22px; }
 ::selection { background: rgba(194, 164, 103, .3); }
 .note { padding: 0 18px 12px; color: var(--muted); font-size: 12px; line-height: 17px; }
@@ -85,15 +86,15 @@ const MEANDER = 'M1.5 14.5v-13h13v10h-9v-6h5v3';
 const SLIDERS = 'M2 5h6m4 0h2M2 11h2m4 0h6M12 5a2 2 0 1 1-4 0 2 2 0 0 1 4 0zM8 11a2 2 0 1 1-4 0 2 2 0 0 1 4 0z';
 const CROSS = 'M4 4l8 8m0-8l-8 8';
 
+// A [what is needed] the model left for the writer to fill in, not a [link](url).
+const BLANK = /\[[^\]\n]+\](?!\()/;
+const BLANKS = new RegExp(`(${BLANK.source})`, 'g');
+
 let lastBody = null;
-document.addEventListener(
-  'focusin',
-  (e) => {
-    const body = e.target instanceof Element ? e.target.closest(BODY) : null;
-    if (body) lastBody = body;
-  },
-  true,
-);
+function trackFocus(e) {
+  const body = e.target instanceof Element ? e.target.closest(BODY) : null;
+  if (body) lastBody = body;
+}
 
 function findBody() {
   const active = document.activeElement?.closest?.(BODY);
@@ -109,19 +110,27 @@ let panel = null;
 // carries on the same conversation instead of polishing its own work.
 const written = new WeakMap();
 
+// A reply suggested on a thread before its reply box was open: { threadId, turns }.
+// Opening the panel on that empty reply picks it up, ready to write in.
+let suggested = null;
+
 function openPanel() {
   const body = findBody();
   const draft = body ? readDraft(body) : { text: '', blocked: false, lossy: false };
-  const context = body ? readContext(body) : null;
+  // With no draft open, a thread on screen is enough to suggest a reply.
+  const context = body ? readContext(body) : readOpenThread();
+  const threadId = context ? threadKey(context) : '';
   const earlier = body ? written.get(body) : null;
   const resumed = earlier?.text === draft.text;
+  const carried = !resumed && !draft.text && threadId && suggested?.threadId === threadId ? suggested : null;
   const state = {
-    status: body ? 'idle' : 'nobody', // idle | loading | done | nobody
+    status: carried ? 'done' : context ? 'idle' : 'nobody', // idle | loading | done | nobody
     // The draft as it was before any edit, and every finished edit since:
     // { instruction, result }. Each request sends all of it.
     original: resumed ? earlier.original : draft.text,
-    turns: resumed ? [...earlier.turns] : [],
-    result: '', // the version on screen, ready to replace the draft
+    turns: [...(resumed ? earlier.turns : carried ? carried.turns : [])],
+    // The version on screen, ready to replace the draft.
+    result: carried ? carried.turns.at(-1).result : '',
     problem: null, // { message, code } while the last request has failed
     lastInstruction: '',
     writeFailed: false,
@@ -168,6 +177,13 @@ function openPanel() {
   function show(text) {
     out.replaceChildren(textToNodes(text));
     for (const link of out.querySelectorAll('a')) Object.assign(link, { target: '_blank', rel: 'noopener noreferrer' });
+    // Blanks stand out here only. The draft gets them as plain text.
+    const walker = document.createTreeWalker(out, NodeFilter.SHOW_TEXT);
+    const texts = [];
+    while (walker.nextNode()) if (BLANK.test(walker.currentNode.data)) texts.push(walker.currentNode);
+    for (const node of texts) {
+      node.replaceWith(...node.data.split(BLANKS).map((part, i) => (i % 2 ? el('mark', { textContent: part }) : part)));
+    }
   }
 
   const key = (name) => el('kbd', { textContent: name });
@@ -175,7 +191,7 @@ function openPanel() {
   function render() {
     const { status, problem } = state;
     const ready = status === 'done';
-    const locked = draft.blocked || state.writeFailed;
+    const locked = !body || draft.blocked || state.writeFailed;
     const fix = problem?.code === 'settings';
     card.classList.toggle('loading', status === 'loading');
 
@@ -198,17 +214,19 @@ function openPanel() {
     else if (locked) hint.replaceChildren(...closes);
     else hint.replaceChildren(key('Enter'), ' replaces the draft · ', ...closes);
 
-    let about = '';
+    const about = [];
     if (ready) {
-      if (state.writeFailed) about = 'Could not write into this draft. Copy the text instead.';
-      else if (draft.blocked) about = 'This draft has an image or table, so replacing is off. Copy the text instead.';
-      else if (draft.lossy) about = 'Only links, bold and lists are kept. Other formatting in this draft will be lost.';
+      if (!body) about.push('To write it in, open a reply and press the shortcut again.');
+      else if (state.writeFailed) about.push('Could not write into this draft. Copy the text instead.');
+      else if (draft.blocked) about.push('This draft has an image or table, so replacing is off. Copy the text instead.');
+      else if (draft.lossy) about.push('Only links, bold and lists are kept. Other formatting in this draft will be lost.');
+      if (BLANK.test(state.result)) about.push('Fill in the [brackets] before you send.');
     }
-    note.textContent = about;
-    note.hidden = !about;
+    note.textContent = about.join(' ');
+    note.hidden = !about.length;
 
-    if (!state.original && !state.turns.length) input.placeholder = 'Say what to write';
-    else if (state.turns.length > 1 || resumed) input.placeholder = 'Ask for another change';
+    if (!state.original && !state.turns.length && !context?.thread.length) input.placeholder = 'Say what to write';
+    else if (state.turns.length > 1 || resumed || carried) input.placeholder = 'Ask for another change';
     else input.placeholder = 'Ask for a change, e.g. shorter, warmer, more direct';
   }
 
@@ -263,6 +281,7 @@ function openPanel() {
         state.port = null;
         port.disconnect();
         state.turns.push({ instruction, result: msg.text });
+        if (!body) suggested = { threadId, turns: [...state.turns] };
         state.result = msg.text;
         state.status = 'done';
         out.classList.remove('stale');
@@ -277,9 +296,10 @@ function openPanel() {
   }
 
   function replace() {
-    if (draft.blocked || state.writeFailed) return;
+    if (!body || draft.blocked || state.writeFailed) return;
     if (replaceDraft(body, state.result)) {
       written.set(body, { text: readDraft(body).text, original: state.original, turns: state.turns });
+      if (suggested?.threadId === threadId) suggested = null;
       close({ refocus: false });
       return;
     }
@@ -363,21 +383,38 @@ function openPanel() {
 
   for (const type of KEY_EVENTS) window.addEventListener(type, onKey, true);
   document.documentElement.append(host);
-  panel = { close };
+  panel = { close, onDraft: Boolean(body) };
 
-  if (!body) {
+  if (state.status === 'nobody') {
     render();
     closeButton.focus();
     return;
   }
   host.append(input);
   input.focus();
-  if (draft.text && !resumed) run('');
+  if (carried) show(state.result);
+  // A draft with text gets the first pass. An empty reply gets a suggested one.
+  if (!resumed && !carried && (draft.text || context.thread.length)) run('');
   else render();
 }
 
-chrome.runtime.onMessage.addListener((msg) => {
+function onMessage(msg) {
   if (msg?.type !== 'toggle') return;
-  if (panel) panel.close();
-  else openPanel();
-});
+  if (!panel) {
+    openPanel();
+    return;
+  }
+  // Pressed again from a draft, a panel that had none moves onto it.
+  const move = !panel.onDraft && findBody();
+  panel.close();
+  if (move) openPanel();
+}
+
+// One live copy per tab. Chrome adds one as Gmail loads, and the toolbar
+// button adds one to a tab that was open before. A copy left from before an
+// extension reload can no longer reach the extension, so it gives way.
+if (!globalThis.rhadaLive?.()) {
+  globalThis.rhadaLive = () => Boolean(chrome.runtime?.id);
+  document.addEventListener('focusin', trackFocus, true);
+  chrome.runtime.onMessage.addListener(onMessage);
+}

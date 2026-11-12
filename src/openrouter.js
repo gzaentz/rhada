@@ -1,4 +1,4 @@
-// The whole OpenRouter client: one streaming chat call and two free checks.
+// The whole OpenRouter client: one streaming chat call and three free checks.
 // Formats follow openrouter.ai/docs (streaming, errors), read 2026-11-09.
 const API = 'https://openrouter.ai/api/v1';
 
@@ -68,6 +68,14 @@ export async function streamChat({ apiKey, signal, body, onText, onWait }) {
 // Throws with status 401 when OpenRouter does not accept the key. Costs nothing.
 export async function checkKey(apiKey) {
   await request('/key', { apiKey });
+}
+
+// The endpoints OpenRouter counts as zero data retention for this model, the
+// only kind requests are sent to. A public list, so the key is not sent.
+export async function zdrEndpoints(model) {
+  const { data } = await (await request('/endpoints/zdr')).json();
+  const base = model.split(':')[0];
+  return data.filter((endpoint) => endpoint.model_id === model || endpoint.model_id === base);
 }
 
 // A public lookup, so the key is not sent. Also knows variants such as ":nitro".

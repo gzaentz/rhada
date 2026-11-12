@@ -1,18 +1,44 @@
 import { loadSettings } from './settings.js';
 import { buildMessages } from './prompt.js';
-import { OpenRouterError, checkKey, modelExists, streamChat } from './openrouter.js';
+import { OpenRouterError, checkKey, modelExists, streamChat, zdrEndpoints } from './openrouter.js';
 
 // The API key stays out of reach of scripts running inside web pages.
 chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' });
 
+const GMAIL = 'https://mail.google.com/';
+
 // The toolbar button and the keyboard shortcut both land here.
 chrome.action.onClicked.addListener(async (tab) => {
+  if (!tab.url?.startsWith(GMAIL)) {
+    await showGmail();
+    return;
+  }
   try {
     await chrome.tabs.sendMessage(tab.id, { type: 'toggle' });
   } catch {
-    chrome.runtime.openOptionsPage();
+    // Chrome adds the panel only to Gmail tabs that load after the extension
+    // does. A tab already open when it was installed or reloaded gets it now.
+    try {
+      await chrome.scripting.insertCSS({ target: { tabId: tab.id }, files: ['content.css'] });
+      await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['dist/content.js'] });
+      await chrome.tabs.sendMessage(tab.id, { type: 'toggle' });
+    } catch {
+      // The tab is still loading or shows an error page: Chrome adds the panel once it loads.
+    }
   }
 });
+
+// Anywhere else, go to Gmail: the Gmail tab used last, or a new one.
+async function showGmail() {
+  const tabs = await chrome.tabs.query({ url: `${GMAIL}*` });
+  const tab = tabs.sort((a, b) => (b.lastAccessed ?? 0) - (a.lastAccessed ?? 0))[0];
+  if (!tab) {
+    await chrome.tabs.create({ url: GMAIL });
+    return;
+  }
+  await chrome.tabs.update(tab.id, { active: true });
+  await chrome.windows.update(tab.windowId, { focused: true });
+}
 
 function describe(err, model) {
   if (err?.name === 'AbortError') return null;
@@ -58,6 +84,9 @@ chrome.runtime.onConnect.addListener((port) => {
         body: {
           model: settings.model,
           max_tokens: 8000,
+          // Only providers that keep nothing once they answer. OpenRouter
+          // fails the request rather than fall back to one that keeps data.
+          provider: { zdr: true },
           // Models that reason before answering do it briefly: edits should feel instant.
           reasoning: { effort: 'low' },
           messages: buildMessages(settings, context),
@@ -94,6 +123,16 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     try {
       await checkKey(openRouterKey);
       if (!(await modelExists(model))) return { ok: false, message: `OpenRouter has no model called "${model}".` };
+      const endpoints = await zdrEndpoints(model);
+      if (!endpoints.length) {
+        return { ok: false, message: `no provider with zero data retention runs "${model}". Pick another model.` };
+      }
+      // OpenRouter also routes zero-retention requests to "Safety Retention"
+      // endpoints, which keep requests to check for abuse, unless the account says ZDR only.
+      const keepers = [...new Set(endpoints.filter((e) => e.safety_retention).map((e) => e.provider_name))];
+      if (keepers.length) {
+        return { ok: true, note: `${keepers.join(' and ')} may keep these requests to check for abuse, unless your OpenRouter privacy setting is ZDR only.` };
+      }
       return { ok: true };
     } catch (err) {
       return { ok: false, message: describe(err, model)?.message || 'Check failed.' };

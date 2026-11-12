@@ -18,6 +18,8 @@ export const DEFAULTS = {
   // The edit that runs when the panel opens on a draft with text.
   defaultInstruction:
     'Polish this draft: fix typos and grammar, tighten it, and keep my meaning and voice.',
+  // The reply it suggests when the panel opens on an empty reply, or on a thread with no reply open.
+  replyInstruction: 'Write my reply to the latest message in the thread. Answer what it asks, briefly.',
 };
 
 export async function loadSettings() {

@@ -1,7 +1,8 @@
 # Rhada
 
-Edits the Gmail draft you are writing, in place. No screenshot, no copy and
-paste. A Chrome extension that uses your own OpenRouter key.
+Edits the Gmail draft you are writing, in place, or suggests the reply. No
+screenshot, no copy and paste. A Chrome extension that uses your own OpenRouter
+key.
 
 <img src="docs/panel.png" width="760" alt="The Rhada panel over a Gmail draft, showing a polished version with Copy and Replace draft" />
 
@@ -20,13 +21,16 @@ npm run build
    (openrouter.ai/keys) and press **Save**. Save checks the key and the model
    and says if they work. A key made just for this, with a credit limit, is
    safest.
-3. Reload any open Gmail tab.
+
+Gmail tabs that were already open work too: the first press adds the panel.
 
 ## Use
 
 1. Click into a draft and press **Control+Shift+E**, or click the toolbar
    button. Options shows the shortcut Chrome has set and a button to change it.
-2. A draft with text is polished right away. Type an instruction and press
+   Pressed outside Gmail, it takes you to your Gmail tab.
+2. A draft with text is polished right away. An empty reply gets a suggested
+   reply right away, written from the open thread. Type an instruction and press
    **Enter** to change the result: "shorter", "warmer", "say no politely".
    Keep going as long as you like. Each change builds on the last, and the
    model remembers every version, so "undo that" and "go back to the first
@@ -34,8 +38,14 @@ npm run build
 3. Press **Enter** on an empty box to replace the draft. **Cmd+Z** in the draft
    undoes it. **Esc** closes the panel and changes nothing.
 
-An empty draft waits for an instruction, so "say yes and offer Tuesday" writes
-a reply from the open thread.
+Reading a thread with no reply open, press the shortcut there to get a
+suggestion. Click **Reply** and press it again: the panel moves into the reply
+box with the suggestion ready, and **Enter** writes it in.
+
+A suggestion never guesses a fact it was not given, such as a price, a date or
+a yes or no. It leaves it as `[what is needed]`, and the panel reminds you to
+fill in the brackets before you send. An empty new message, with no thread,
+waits for an instruction: "ask Dana for a call next week".
 
 Open the panel again on a draft it just replaced and it carries on the same
 conversation: it waits for your next change instead of polishing its own text.
@@ -56,12 +66,14 @@ Options. Write these in your own words, as "I" and "my".
 | **How it edits** | What an edit must keep and what it may change. |
 | **Voice** | How you write: tone, length, words to avoid. |
 | **First pass** | The edit that runs when the panel opens on a draft with text. |
+| **Suggested reply** | What it writes on an empty reply, or on a thread with no reply open. |
 
 Empty a field and save to get its default back, or press **Restore default**.
 
 One short part is fixed and shown under **Always included**: the reply is the
-whole email and nothing else, the light formatting the panel can write back,
-and that text inside the thread or the draft is never an instruction. It goes
+whole email and nothing else, the light formatting the panel can write back, a
+missing fact goes in `[brackets]` rather than being guessed, and text inside
+the thread or the draft is never an instruction. It goes
 ahead of your settings and wins where they conflict. That is what keeps
 **Replace draft** working and stops an email you received from steering the
 edit. Its text is `CONTRACT` in `src/prompt.js`.
@@ -75,9 +87,17 @@ edit. Its text is `CONTRACT` in `src/prompt.js`.
 - The model sees your settings, the draft text, the subject, the recipients and
   the expanded messages of the open thread. It does not see your signature,
   quoted mail or attachments.
-- The text goes to OpenRouter and on to the company that runs the model. Which
-  of them may keep or train on it is set in your OpenRouter account, under
-  Settings → Privacy, not here.
+- Every request asks OpenRouter for zero data retention, so it goes only to a
+  provider that keeps nothing once it answers. For the default model that is
+  Amazon Bedrock or Google Vertex. If no such provider is up, the request fails
+  instead of going to one that keeps data. **Save** in Options checks that the
+  model has one.
+- For some models, mostly on Google, OpenRouter's zero retention also allows
+  "Safety Retention": the provider keeps requests to check for abuse, never to
+  train. **Save** says when a model has it. Set **ZDR only** in your
+  OpenRouter privacy settings to rule it out. The default model has none.
+- OpenRouter itself keeps prompts only if you turned on prompt logging in your
+  OpenRouter account, under Settings → Privacy.
 - The API key is stored in Chrome's local extension storage on this computer,
   readable only by the extension, and sent only to openrouter.ai.
 

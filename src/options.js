@@ -63,7 +63,7 @@ form.addEventListener('submit', async (e) => {
     saved = values;
     fill(values);
     const check = await chrome.runtime.sendMessage({ type: 'check-key' });
-    if (check.ok) show('Saved. The key works.', 'ok');
+    if (check.ok) show(['Saved. The key works.', check.note].filter(Boolean).join(' '), 'ok');
     else show(`Saved, but ${check.message}`, 'bad');
   } catch (err) {
     show(`Could not save: ${err.message}`, 'bad');

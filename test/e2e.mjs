@@ -45,14 +45,21 @@ const BODIES = {
   image: `<div>see the chart</div><div><img alt="chart" src="data:image/gif;base64,R0lGODlhAQABAAAAACw="></div>${SIGNATURE}`,
 };
 
-function gmailPage(name, { subject = 'Re: Pricing question' } = {}) {
-  const compose = `<table><tbody><tr><td class="I5">
+const composeBox = (name, subject) => `<table><tbody><tr><td class="I5">
     <form>
       <div role="listbox" aria-label="Search Field"><div role="option" data-hovercard-id="dana@example.com" data-name="Dana Lee">Dana Lee</div></div>
       <input name="subjectbox" aria-label="Subject" value="${subject}">
     </form>
     <div class="Am aiL Al editable" role="textbox" aria-label="Message Body" aria-multiline="true" contenteditable="true" g_editable="true" style="min-height:120px">${BODIES[name]}</div>
   </td></tr></tbody></table>`;
+
+// `none` is a thread with no reply open yet, and a Reply button that opens one.
+// `inbox` has neither a thread nor a draft.
+function gmailPage(name, { subject = 'Re: Pricing question' } = {}) {
+  const compose =
+    name === 'none'
+      ? `<div role="button" tabindex="0" id="reply">Reply</div><template id="replyBox">${composeBox('empty', subject)}</template>`
+      : composeBox(name, subject);
   return `<!doctype html><html><head><meta charset="utf-8"><title>Mock Gmail</title><style>
   body { margin: 0; padding: 28px 56px; background: #f6f8fc; color: #202124; font: 14px/20px Arial, sans-serif; }
   [role="main"] { padding: 20px 28px 28px; border-radius: 16px; background: #fff; }
@@ -62,16 +69,17 @@ function gmailPage(name, { subject = 'Re: Pricing question' } = {}) {
   table { width: 100%; } .I5 { padding: 12px 16px; border: 1px solid #dadce0; border-radius: 8px; }
   input { display: block; width: 100%; margin: 8px 0; padding: 6px 0; border: 0; border-bottom: 1px solid #eee; font: inherit; }
   [contenteditable] { outline: none; }
+  #reply { display: inline-block; padding: 8px 20px; border: 1px solid #dadce0; border-radius: 18px; cursor: pointer; }
 </style></head><body>
-<div role="main">
+<div role="main">${name === 'inbox' ? '<p>Inbox</p></div>' : `
   <h2 class="hP">Pricing question</h2>
   <div role="list"><div role="listitem"><div class="adn ads">
     <span class="gD" email="dana@example.com" name="Dana Lee">Dana Lee</span>
     <span class="g3" title="Nov 8, 2026, 9:14 AM">9:14 AM</span>
     <div class="a3s aiL"><div dir="ltr">Hi Sam,<div><br></div><div>Can you send pricing for 20 seats?</div><div class="gmail_quote">an older quoted message</div></div></div>
   </div></div></div>
-  ${name === 'none' ? '' : compose}
-</div>
+  ${compose}
+</div>`}
 <div role="combobox" aria-label="Ask Gemini" contenteditable="true"></div>
 <script>
   // Stands in for Gmail's page-level keyboard shortcuts.
@@ -80,6 +88,11 @@ function gmailPage(name, { subject = 'Re: Pricing question' } = {}) {
     document.addEventListener(type, (e) => window.__keys.push(type + ':' + e.key), true);
     document.addEventListener(type, (e) => window.__keys.push(type + ':' + e.key));
   }
+  // Like Gmail's Reply: the reply box opens in the thread with the cursor in it.
+  document.getElementById('reply')?.addEventListener('click', (e) => {
+    e.target.replaceWith(document.getElementById('replyBox').content.cloneNode(true));
+    document.querySelector('[g_editable="true"]').focus();
+  });
 </script>
 </body></html>`;
 }
@@ -99,6 +112,11 @@ const SHORTER = `Hi Dana,
 const WITH_PS = `${SHORTER}
 
 PS: the trial is free.`;
+const SUGGESTED = `Hi Dana,
+
+Happy to help. For 20 seats it is [price per seat] a month.
+
+- Sam`;
 const OPTIONS_REPLY = `Hi Dana,
 
 Two options:
@@ -113,7 +131,7 @@ const rendered = (text) => text.replace(/\*\*/g, '').replace(/\[([^\]]+)\]\([^)]
 
 function sse(text, finish = 'stop') {
   const chunk = (delta, reason = null, extra = {}) =>
-    `data: ${JSON.stringify({ id: 'gen-test', object: 'chat.completion.chunk', created: 1794000000, model: 'anthropic/claude-opus-5.5', provider: 'Anthropic', choices: [{ index: 0, delta, finish_reason: reason, native_finish_reason: reason }], ...extra })}\n\n`;
+    `data: ${JSON.stringify({ id: 'gen-test', object: 'chat.completion.chunk', created: 1794000000, model: 'anthropic/claude-opus-5.5', provider: 'Amazon Bedrock', choices: [{ index: 0, delta, finish_reason: reason, native_finish_reason: reason }], ...extra })}\n\n`;
   return [
     ': OPENROUTER PROCESSING\n\n',
     chunk({ role: 'assistant', content: '', reasoning: 'Tighten it, keep the facts.' }),
@@ -123,11 +141,14 @@ function sse(text, finish = 'stop') {
   ].join('');
 }
 
+// The extension is loaded once a Gmail tab is already open, the way it was
+// installed for real, so that tab starts without the panel's script.
 const context = await chromium.launchPersistentContext(profile, {
   channel: 'chromium',
   headless: true,
   deviceScaleFactor: SHOTS ? 2 : 1,
-  args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`],
+  args: ['--enable-unsafe-extension-debugging'],
+  ignoreDefaultArgs: ['--disable-extensions'],
 });
 
 const calls = [];
@@ -141,13 +162,22 @@ try {
       body: gmailPage(url.searchParams.get('case'), { subject: url.searchParams.get('subject') ?? undefined }),
     });
   });
+  await context.route('https://example.com/**', (route) =>
+    route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Elsewhere</title><p>Not Gmail</p>' }),
+  );
   await context.route('https://openrouter.ai/**', async (route) => {
     const request = route.request();
     const headers = request.headers();
     const path = new URL(request.url()).pathname;
     const json = (status, body) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
+    // A slice of the live list (2026-11-11). Public, like the model lookup.
+    if (path === '/api/v1/endpoints/zdr') {
+      const endpoint = (provider, tag) => ({ name: `${provider} | anthropic/claude-opus-5.5-20260921`, model_id: 'anthropic/claude-opus-5.5', model_name: 'Anthropic: Claude Opus 5.5', provider_name: provider, tag, safety_retention: false });
+      const safety = { name: 'Google | meta/muse-spark-1.3-20260902', model_id: 'meta/muse-spark-1.3', model_name: 'Meta: Muse Spark 1.3', provider_name: 'Google', tag: 'google-vertex/global', safety_retention: true };
+      return json(200, { data: [endpoint('Amazon Bedrock', 'amazon-bedrock'), endpoint('Google', 'google-vertex/global'), safety] });
+    }
     if (path.startsWith('/api/v1/models/')) {
-      return path === '/api/v1/models/anthropic/claude-opus-5.5/endpoints'
+      return ['anthropic/claude-opus-5.5', 'example/keeps-data', 'meta/muse-spark-1.3'].some((id) => path === `/api/v1/models/${id}/endpoints`)
         ? json(200, { data: { id: 'anthropic/claude-opus-5.5', endpoints: [] } })
         : json(404, { error: { message: 'Not Found', code: 404 } });
     }
@@ -159,12 +189,16 @@ try {
     const asked = body.messages.at(-1).content;
     if (/slowly/.test(asked)) await new Promise((resolve) => setTimeout(resolve, 1500));
     if (/cut it off/.test(asked)) return route.fulfill({ contentType: 'text/event-stream', body: sse('Hi Dana, pricing for 20 seats is', null) });
-    const reply = /two options/i.test(asked) ? OPTIONS_REPLY : /\bPS\b/.test(asked) ? WITH_PS : /shorter/.test(asked) ? SHORTER : POLISHED;
+    const reply = /Write my reply/.test(asked) ? SUGGESTED : /two options/i.test(asked) ? OPTIONS_REPLY : /\bPS\b/.test(asked) ? WITH_PS : /shorter/.test(asked) ? SHORTER : POLISHED;
     return route.fulfill({ contentType: 'text/event-stream', body: sse(reply) });
   });
 
   await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: 'https://mail.google.com' });
-  const worker = context.serviceWorkers()[0] ?? (await context.waitForEvent('serviceworker'));
+  const early = await context.newPage();
+  await early.goto('https://mail.google.com/mail/u/0/?case=fresh');
+  const started = context.waitForEvent('serviceworker');
+  await (await context.browser().newBrowserCDPSession()).send('Extensions.loadUnpacked', { path: extension });
+  const worker = await started;
   const extensionId = new URL(worker.url()).host;
 
   // Same entry point as the toolbar button and the keyboard shortcut.
@@ -237,12 +271,23 @@ try {
     await save.click();
     await page.locator('#status.bad', { hasText: 'no model' }).waitFor();
     assert.equal(await page.locator('#status').innerText(), 'Saved, but OpenRouter has no model called "claude-opus-5-5".');
+    // Edits go only to providers that keep no data, so a model none of them runs would always fail.
+    await label('Model').fill('example/keeps-data');
+    await save.click();
+    await page.locator('#status.bad', { hasText: 'zero data retention' }).waitFor();
+    assert.equal(await page.locator('#status').innerText(), 'Saved, but no provider with zero data retention runs "example/keeps-data". Pick another model.');
+    // OpenRouter's zero retention can include Google's abuse checks: Save says so.
+    await label('Model').fill('meta/muse-spark-1.3');
+    await save.click();
+    await page.locator('#status.ok').waitFor();
+    assert.equal(await page.locator('#status').innerText(), 'Saved. The key works. Google may keep these requests to check for abuse, unless your OpenRouter privacy setting is ZDR only.');
     await page.getByRole('button', { name: 'Restore the default model' }).click();
     assert.equal(await label('Model').inputValue(), 'anthropic/claude-opus-5.5');
     assert.equal(await page.getByRole('button', { name: 'Restore the default model' }).isVisible(), false);
 
     // What the model is told about the writer and about editing is theirs to set.
     assert.match(await label('How it edits').inputValue(), /^Keep my meaning, facts, names, numbers/);
+    assert.match(await label('Suggested reply').inputValue(), /^Write my reply to the latest message/);
     await label('Context').fill('I am Sam. I run sales at Acme.');
     await label('How it edits').fill('Keep every number. Never add a promise.');
     await label('Voice').fill('Short sentences. No hype.');
@@ -291,10 +336,12 @@ try {
     assert.equal(body.model, 'anthropic/claude-opus-5.5');
     assert.equal(body.stream, true);
     assert.deepEqual(body.reasoning, { effort: 'low' });
+    assert.deepEqual(body.provider, { zdr: true }, 'only providers that keep no data');
     assert.deepEqual(body.messages.map((m) => m.role), ['system', 'user']);
     // The system message is the fixed contract, then the writer's own settings from Options.
     const system = body.messages[0].content;
     assert.match(system, /^You edit email drafts/);
+    assert.match(system, /Never guess a fact[\s\S]*\[what is needed\] in square brackets/);
     assert.match(system, /<about_the_writer>\nI am Sam\. I run sales at Acme\.\n<\/about_the_writer>/);
     assert.match(system, /<how_to_edit>\nKeep every number\. Never add a promise\.\n<\/how_to_edit>/);
     assert.match(system, /<voice>\nShort sentences\. No hype\.\n<\/voice>/);
@@ -430,9 +477,42 @@ try {
     await page.close();
   });
 
-  await test('outside a draft, it says where to click', async () => {
+  await test('reading a thread, it suggests a reply, then writes it into the reply box', async () => {
     const page = await context.newPage();
     await page.goto('https://mail.google.com/mail/u/0/?case=none');
+    await toggle(page);
+    await page.getByRole('button', { name: 'Copy' }).waitFor();
+    assert.equal(await shownText(page), rendered(SUGGESTED));
+    assert.equal(await page.getByRole('button', { name: 'Replace draft' }).isDisabled(), true);
+    assert.equal(await page.locator('.note').innerText(), 'To write it in, open a reply and press the shortcut again. Fill in the [brackets] before you send.');
+    const { prompt } = calls.at(-1);
+    assert.match(prompt, /<message from="Dana Lee <dana@example\.com>"[^>]*>\nHi Sam,\n\nCan you send pricing for 20 seats\?\n<\/message>/);
+    assert.match(prompt, /<subject>Pricing question<\/subject>\n\n<draft>\n\n<\/draft>\n\n<instruction>\nWrite my reply to the latest message/);
+    await shot(page, 'panel-thread-suggestion');
+
+    await page.keyboard.type('shorter');
+    await page.keyboard.press('Enter');
+    await page.locator('.out', { hasText: '20 seats is' }).waitFor();
+    await page.getByRole('button', { name: 'Copy' }).waitFor();
+
+    // Gmail's Reply opens the box with the cursor in it. One press moves the
+    // panel there with the suggestion ready, and asks the model nothing new.
+    const before = calls.length;
+    await page.getByRole('button', { name: 'Reply', exact: true }).click();
+    await toggle(page);
+    await page.getByRole('button', { name: 'Replace draft', disabled: false }).waitFor();
+    assert.equal(await shownText(page), rendered(SHORTER));
+    assert.equal(await page.locator('[data-draft-editor] textarea').getAttribute('placeholder'), 'Ask for another change');
+    assert.equal(calls.length, before);
+    await page.keyboard.press('Enter');
+    await page.locator('[data-draft-editor]').waitFor({ state: 'detached' });
+    assert.match(await draftText(page), /^Hi Dana,\n\n20 seats is \$40\/seat: our pricing page\.\n\n- Sam\nSam Rivera/);
+    await page.close();
+  });
+
+  await test('with no thread and no draft, it says where to click', async () => {
+    const page = await context.newPage();
+    await page.goto('https://mail.google.com/mail/u/0/?case=inbox');
     const before = calls.length;
     await toggle(page);
     assert.equal(await page.getByRole('alert').innerText(), 'Click into a draft, then press the shortcut again.');
@@ -486,8 +566,25 @@ try {
     await page.close();
   });
 
-  await test('empty reply: waits for an instruction, then writes', async () => {
+  await test('empty reply: suggests one at once, with blanks to fill in', async () => {
     const page = await open('empty');
+    const signature = await tailHtml(page);
+    await toggle(page);
+    await page.getByRole('button', { name: 'Replace draft' }).waitFor();
+    assert.equal(await shownText(page), rendered(SUGGESTED));
+    assert.equal(await page.locator('.note').innerText(), 'Fill in the [brackets] before you send.');
+    assert.deepEqual(await page.locator('.out mark').allInnerTexts(), ['[price per seat]']);
+    assert.match(calls.at(-1).prompt, /<thread>[\s\S]*Can you send pricing[\s\S]*<draft>\n\n<\/draft>\n\n<instruction>\nWrite my reply to the latest message/);
+    await shot(page, 'panel-suggested-reply');
+    await page.keyboard.press('Enter');
+    await page.locator('[data-draft-editor]').waitFor({ state: 'detached' });
+    assert.match(await draftText(page), /^Hi Dana,\n\nHappy to help\. For 20 seats it is \[price per seat\] a month\.\n\n- Sam\nSam Rivera/);
+    assert.equal(await tailHtml(page), signature);
+    await page.close();
+  });
+
+  await test('empty new message: waits for an instruction, then writes', async () => {
+    const page = await open('empty', '&subject=Intro');
     const signature = await tailHtml(page);
     const before = calls.length;
     await toggle(page);
@@ -500,6 +597,7 @@ try {
     await page.keyboard.press('Enter');
     await page.getByRole('button', { name: 'Replace draft' }).waitFor();
     assert.match(calls.at(-1).prompt, /<draft>\n\n<\/draft>[\s\S]*<instruction>\nsay yes and share pricing\n<\/instruction>/);
+    assert.doesNotMatch(calls.at(-1).prompt, /<thread>/);
     await page.keyboard.press('Enter');
     await page.locator('[data-draft-editor]').waitFor({ state: 'detached' });
     // Like typing on that line: the text sits right above the signature.
@@ -526,11 +624,13 @@ try {
     const page = await open('signatureOnly');
     const original = await draftHtml(page);
     await toggle(page);
-    await page.keyboard.type('say yes');
+    await page.getByRole('button', { name: 'Replace draft' }).waitFor();
+    await page.keyboard.type('shorter');
     await page.keyboard.press('Enter');
+    await page.locator('.out', { hasText: '20 seats is' }).waitFor();
     await page.getByRole('button', { name: 'Replace draft' }).click();
     await page.locator('.note', { hasText: 'Could not write into this draft' }).waitFor();
-    assert.equal(await shownText(page), rendered(POLISHED));
+    assert.equal(await shownText(page), rendered(SHORTER));
     assert.equal(await page.getByRole('button', { name: 'Replace draft' }).isDisabled(), true);
     assert.equal(await draftHtml(page), original);
     await page.getByRole('button', { name: 'Copy' }).click();
@@ -540,7 +640,7 @@ try {
       return { html: await (await item.getType('text/html')).text(), text: await (await item.getType('text/plain')).text() };
     });
     assert.match(copied.html, /<b>\$40\/seat<\/b>.*<a href="https:\/\/example\.com\/pricing">our pricing page<\/a>/);
-    assert.equal(copied.text, POLISHED);
+    assert.equal(copied.text, SHORTER);
     await page.keyboard.press('Escape');
     await page.locator('[data-draft-editor]').waitFor({ state: 'detached' });
     await page.close();
@@ -581,6 +681,43 @@ try {
     assert.equal(await page.getByRole('button', { name: 'Open Options' }).isVisible(), true);
     assert.equal(await page.getByRole('button', { name: 'Replace draft' }).isVisible(), false);
     await page.close();
+  });
+
+  await test('outside Gmail, the shortcut goes to Gmail instead of opening Options', async () => {
+    await worker.evaluate(() => chrome.storage.local.set({ openRouterKey: 'sk-or-test-fake' }));
+    const gmail = await open('fresh');
+    const other = await context.newPage();
+    await other.goto('https://example.com/');
+    const pages = context.pages().length;
+    await toggle(other);
+    assert.equal(context.pages().length, pages, 'no Options tab');
+    // Pressed again, it is over the Gmail tab it went to.
+    await worker.evaluate(async () => {
+      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      chrome.action.onClicked.dispatch(tab);
+    });
+    await gmail.locator('[data-draft-editor]').waitFor();
+    await gmail.getByRole('button', { name: 'Replace draft' }).waitFor();
+    await other.close();
+    await gmail.close();
+  });
+
+  await test('a Gmail tab open before the extension loaded still gets the panel', async () => {
+    await early.locator('[g_editable="true"]').click();
+    const pages = context.pages().length;
+    await toggle(early);
+    await early.getByRole('button', { name: 'Replace draft' }).waitFor();
+    assert.equal(context.pages().length, pages, 'no Options tab');
+    await early.keyboard.press('Enter');
+    await early.locator('[data-draft-editor]').waitFor({ state: 'detached' });
+    assert.match(await draftText(early), /^Hi Dana,[\s\S]*Happy to jump on a call\./);
+    // The script added then is the only copy listening: one press opens, the next closes.
+    await toggle(early);
+    await early.locator('[data-draft-editor]').waitFor();
+    assert.equal(await early.locator('[data-draft-editor]').count(), 1);
+    await toggle(early);
+    await early.locator('[data-draft-editor]').waitFor({ state: 'detached' });
+    await early.close();
   });
 
   console.log(`\n${passed} passed`);

@@ -2,7 +2,7 @@
 // the live API on 2026-11-09; the stream follows OpenRouter's streaming docs.
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
-import { OpenRouterError, checkKey, modelExists, streamChat } from '../src/openrouter.js';
+import { OpenRouterError, checkKey, modelExists, streamChat, zdrEndpoints } from '../src/openrouter.js';
 
 const realFetch = globalThis.fetch;
 afterEach(() => {
@@ -116,5 +116,19 @@ test('looks a model up by ID without sending the key', async () => {
   assert.equal(await modelExists('anthropic/claude-opus-5.5:nitro'), true);
   assert.equal(await modelExists('claude-opus-5-5'), false);
   assert.equal(asked[0].url, 'https://openrouter.ai/api/v1/models/anthropic/claude-opus-5.5%3Anitro/endpoints');
+  assert.deepEqual(asked[0].init.headers, {});
+});
+
+test('finds a zero-retention provider for a model, variants included, without sending the key', async () => {
+  const asked = [];
+  // Two entries from the live list, 2026-11-11.
+  globalThis.fetch = async (url, init) => {
+    asked.push({ url, init });
+    return json(200, { data: [{ model_id: 'anthropic/claude-opus-5.5', provider_name: 'Amazon Bedrock', tag: 'amazon-bedrock' }, { model_id: 'fish-audio/s2.1-pro-free:free', provider_name: 'Fish Audio', tag: 'fish-audio' }] });
+  };
+  assert.deepEqual((await zdrEndpoints('anthropic/claude-opus-5.5:nitro')).map((e) => e.provider_name), ['Amazon Bedrock']);
+  assert.equal((await zdrEndpoints('fish-audio/s2.1-pro-free:free')).length, 1);
+  assert.deepEqual(await zdrEndpoints('example/keeps-data'), []);
+  assert.equal(asked[0].url, 'https://openrouter.ai/api/v1/endpoints/zdr');
   assert.deepEqual(asked[0].init.headers, {});
 });

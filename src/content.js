@@ -4,6 +4,12 @@ import { BLANK } from './edits.js';
 import { createDictation } from './dictation.js';
 import { FOLLOW_UP } from './prompt.js';
 import { FileProblem, MAX_FILES, readAttachment } from './files.js';
+import { fieldOf, focusedField, pageContext, readField, replaceField } from './field.js';
+
+// In Gmail it knows drafts, threads and sends. Anywhere else it works on the
+// text box with the cursor, and knows only the site.
+const IN_GMAIL = location.hostname === 'mail.google.com';
+const readBox = (box) => (IN_GMAIL ? readDraft(box) : readField(box));
 
 const FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
 
@@ -218,7 +224,7 @@ function startJob(build) {
         try {
           port = chrome.runtime.connect({ name: 'edit' });
         } catch {
-          end('error', { message: 'The extension was updated. Refresh this Gmail tab.' });
+          end('error', { message: 'The extension was updated. Refresh this tab.' });
           return;
         }
         job.port = port;
@@ -249,7 +255,7 @@ function startJob(build) {
           job.port = null;
           // Chrome stopping the worker is worth a retry; a reloaded extension is not.
           end('error', {
-            message: chrome.runtime?.id ? 'Lost contact with Rhada. Try again.' : 'The extension was updated. Refresh this Gmail tab.',
+            message: chrome.runtime?.id ? 'Lost contact with Rhada. Try again.' : 'The extension was updated. Refresh this tab.',
           });
         });
         port.postMessage(request);
@@ -375,6 +381,15 @@ function onFocus(e) {
   setTimeout(() => readyOnReply(body), READY_AFTER);
 }
 
+// Outside Gmail: the box clicked into last, and a waiting panel moves onto it.
+function onFieldFocus(e) {
+  const field = fieldOf(e.composedPath()[0]);
+  if (!field) return;
+  lastBody = field;
+  const waiting = panel;
+  if (waiting && !waiting.onDraft) setTimeout(() => panel === waiting && field.isConnected && moveTo(field), 0);
+}
+
 function onInput(e) {
   if (!prefetch || !(e.target instanceof Element) || e.target.closest(BODY) !== prefetch.body) return;
   if (readDraft(prefetch.body).text) dropPrefetch();
@@ -434,6 +449,7 @@ function onSend(e) {
 // The draft to work on: the one with the cursor. Without one, on a thread
 // it is a reply to that thread or none, never a draft docked beside it.
 function findBody() {
+  if (!IN_GMAIL) return focusedField() ?? (lastBody?.isConnected ? lastBody : null);
   const active = document.activeElement?.closest?.(BODY);
   if (active) return active;
   const last = lastBody?.isConnected ? lastBody : null;
@@ -444,9 +460,9 @@ function findBody() {
 
 function openPanel(body = findBody()) {
   pill.hide();
-  const draft = body ? readDraft(body) : { text: '', blocked: false, lossy: false };
+  const draft = body ? readBox(body) : { text: '', blocked: false, lossy: false };
   // With no draft open, a thread on screen is enough to suggest a reply.
-  const context = body ? readContext(body) : readOpenThread();
+  const context = !IN_GMAIL ? (body ? pageContext() : null) : body ? readContext(body) : readOpenThread();
   const threadId = context ? threadKey(context) : '';
   const earlier = body ? written.get(body) : null;
   const resumed = earlier?.text === draft.text;
@@ -593,7 +609,7 @@ function openPanel(body = findBody()) {
     out.setAttribute('aria-busy', String(status === 'loading'));
 
     const message =
-      status === 'nobody' ? 'Click into a draft.' : (problem?.message ?? state.fileProblem ?? dictation.problem ?? '');
+      status === 'nobody' ? (IN_GMAIL ? 'Click into a draft.' : 'Click into a text box.') : (problem?.message ?? state.fileProblem ?? dictation.problem ?? '');
     // An alert is read out each time its text is set.
     if (notice.textContent !== message) notice.textContent = message;
     notice.hidden = !notice.textContent;
@@ -791,17 +807,22 @@ function openPanel(body = findBody()) {
     );
   }
 
-  function replace() {
-    if (!body || draft.blocked || state.writeFailed || state.draftChanged) return;
-    const now = readDraft(body);
+  let replacing = false;
+  async function replace() {
+    if (!body || draft.blocked || state.writeFailed || state.draftChanged || replacing) return;
+    const now = readBox(body);
     if (now.text !== draft.text || now.blocked !== draft.blocked) {
       state.draftChanged = true;
       render();
       input.focus();
       return;
     }
-    if (replaceDraft(body, state.result)) {
-      written.set(body, { text: readDraft(body).text, original: state.original, turns: state.turns });
+    replacing = true;
+    const wrote = IN_GMAIL ? replaceDraft(body, state.result) : await replaceField(body, state.result);
+    replacing = false;
+    if (!host.isConnected) return;
+    if (wrote) {
+      written.set(body, { text: readBox(body).text, original: state.original, turns: state.turns });
       if (suggested?.threadId === threadId) suggested = null;
       close({ refocus: false });
       return;
@@ -993,7 +1014,7 @@ function onMessage(msg) {
 }
 
 function moveTo(body) {
-  const running = !readDraft(body).text ? panel.handOff() : null;
+  const running = !readBox(body).text ? panel.handOff() : null;
   panel.close();
   if (running) {
     prefetch?.job.cancel();
@@ -1007,9 +1028,13 @@ function moveTo(body) {
 // extension reload can no longer reach the extension, so it gives way.
 if (!globalThis.rhadaLive?.()) {
   globalThis.rhadaLive = () => Boolean(chrome.runtime?.id);
-  document.addEventListener('focusin', onFocus, true);
-  document.addEventListener('input', onInput, true);
-  window.addEventListener('mouseup', onSend, true);
-  window.addEventListener('keydown', onSend, true);
+  if (IN_GMAIL) {
+    document.addEventListener('focusin', onFocus, true);
+    document.addEventListener('input', onInput, true);
+    window.addEventListener('mouseup', onSend, true);
+    window.addEventListener('keydown', onSend, true);
+  } else {
+    document.addEventListener('focusin', onFieldFocus, true);
+  }
   chrome.runtime.onMessage.addListener(onMessage);
 }

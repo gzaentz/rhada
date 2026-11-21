@@ -4,7 +4,7 @@
 // Gmail's Trusted Types policy. OpenRouter is stubbed: its
 // error bodies were recorded from the live API, its stream follows its docs.
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,6 +15,14 @@ const { chromium } = await import('playwright');
 
 const extension = join(dirname(fileURLToPath(import.meta.url)), '..', 'extension');
 const profile = mkdtempSync(join(tmpdir(), 'draft-editor-test-'));
+// On another site, Rhada gets in when the shortcut is pressed (activeTab). A
+// press faked by the test does not count, so this copy is let into example.net
+// up front. example.com stays out, as a page Chrome keeps extensions out of.
+const loaded = join(profile, 'extension');
+cpSync(extension, loaded, { recursive: true });
+const manifest = JSON.parse(readFileSync(join(loaded, 'manifest.json'), 'utf8'));
+manifest.host_permissions.push('https://example.net/*');
+writeFileSync(join(loaded, 'manifest.json'), JSON.stringify(manifest));
 
 // SHOTS=<folder> npm test also saves a picture of each state, to look at.
 const SHOTS = process.env.SHOTS;
@@ -207,6 +215,24 @@ Thanks for thinking of us. We can't take on 20 seats right now, but I'll reach o
 
 - Sam`;
 
+// Another site's text boxes: a plain one, a plain editable one, and an editor
+// that writes pastes into its own model, as chat and post editors do.
+const FIELDS_PAGE = `<!doctype html><title>Messages | Example</title>
+<textarea id="plain" rows="8" cols="80">hey dana, thx for reaching out. pricing for 20 seats is $40/seat. lmk if u want a call</textarea>
+<div id="editable" contenteditable="true" style="min-height: 60px"><div>hey dana, thx</div></div>
+<div id="editor" contenteditable="true" style="min-height: 60px"><p>hey dana</p></div>
+<script>
+  let inputs = 0;
+  document.getElementById('plain').addEventListener('input', () => (inputs += 1));
+  window.inputs = () => inputs;
+  const editor = document.getElementById('editor');
+  editor.addEventListener('paste', (e) => {
+    e.preventDefault();
+    window.pasted = e.clipboardData.getData('text/plain');
+    editor.replaceChildren(...window.pasted.split('\\n').map((line) => Object.assign(document.createElement('p'), { textContent: line })));
+  });
+</script>`;
+
 // What the panel shows: links and bold rendered, not as markup.
 const rendered = (text) => text.replace(/\*\*/g, '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
 
@@ -251,6 +277,13 @@ try {
       body: gmailPage(url.searchParams.get('case'), { subject: url.searchParams.get('subject') ?? undefined, older: url.searchParams.has('older'), mine: url.searchParams.has('mine') }),
     });
   });
+  await context.route('https://example.net/**', (route) =>
+    route.fulfill({
+      contentType: 'text/html',
+      headers: { 'content-security-policy': "require-trusted-types-for 'script'" },
+      body: FIELDS_PAGE,
+    }),
+  );
   await context.route('https://example.com/**', (route) =>
     route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Elsewhere</title><p>Not Gmail</p>' }),
   );
@@ -305,7 +338,7 @@ try {
   const early = await context.newPage();
   await early.goto('https://mail.google.com/mail/u/0/?case=fresh');
   const started = context.waitForEvent('serviceworker');
-  await (await context.browser().newBrowserCDPSession()).send('Extensions.loadUnpacked', { path: extension });
+  await (await context.browser().newBrowserCDPSession()).send('Extensions.loadUnpacked', { path: loaded });
   const worker = await started;
   const extensionId = new URL(worker.url()).host;
 
@@ -1490,7 +1523,64 @@ try {
     await page.close();
   });
 
-  await test('outside Gmail, the shortcut goes to Gmail instead of opening Options', async () => {
+  const site = async (box) => {
+    await worker.evaluate(() => chrome.storage.local.set({ openRouterKey: 'sk-or-test-fake' }));
+    const page = await context.newPage();
+    await page.goto('https://example.net/compose');
+    if (box) await page.locator(box).click();
+    return page;
+  };
+
+  await test('on any site, a text box is polished, then written in as typed text that Cmd+Z undoes', async () => {
+    const page = await site('#plain');
+    const before = await page.locator('#plain').inputValue();
+    await toggle(page);
+    await page.getByRole('button', { name: 'Replace draft' }).waitFor();
+    await shot(page, 'any-site');
+    const { prompt } = calls.at(-1);
+    assert.match(prompt, /<page site="example\.net">Messages \| Example<\/page>/);
+    assert.match(prompt, /<draft>\nhey dana, thx for reaching out/);
+    assert.doesNotMatch(prompt, /<thread>/);
+    await page.keyboard.press('Enter');
+    await page.locator('[data-draft-editor]').waitFor({ state: 'detached' });
+    assert.equal(await page.locator('#plain').inputValue(), POLISHED);
+    assert.ok((await page.evaluate(() => window.inputs())) > 0, 'the page heard the input');
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'plain');
+    await page.keyboard.press('ControlOrMeta+z');
+    assert.equal(await page.locator('#plain').inputValue(), before);
+    await page.close();
+  });
+
+  await test('on any site, an editor gets the text as a paste, and a plain editable box with its lines', async () => {
+    const page = await site('#editor');
+    await toggle(page);
+    await page.getByRole('button', { name: 'Replace draft' }).waitFor();
+    await page.keyboard.press('Enter');
+    await page.locator('[data-draft-editor]').waitFor({ state: 'detached' });
+    assert.equal(await page.evaluate(() => window.pasted), POLISHED);
+    await page.locator('#editable').click();
+    await toggle(page);
+    await page.getByRole('button', { name: 'Replace draft' }).waitFor();
+    await page.keyboard.press('Enter');
+    await page.locator('[data-draft-editor]').waitFor({ state: 'detached' });
+    assert.equal((await page.locator('#editable').innerText()).replace(/\n{3,}/g, '\n\n'), rendered(POLISHED));
+    assert.equal(await page.locator('#editable a').getAttribute('href'), 'https://example.com/pricing');
+    await page.close();
+  });
+
+  await test('on any site, with no box chosen the panel waits, then moves onto the box clicked into', async () => {
+    const page = await site();
+    await toggle(page);
+    await page.getByRole('alert').waitFor();
+    assert.equal(await page.getByRole('alert').innerText(), 'Click into a text box.');
+    await page.locator('#plain').click();
+    await page.getByRole('button', { name: 'Replace draft' }).waitFor();
+    assert.equal(await page.locator('[data-draft-editor]').count(), 1);
+    await page.keyboard.press('Escape');
+    await page.close();
+  });
+
+  await test('where Rhada cannot run, the shortcut goes to Gmail instead of opening Options', async () => {
     await worker.evaluate(() => chrome.storage.local.set({ openRouterKey: 'sk-or-test-fake' }));
     const gmail = await open('fresh');
     const other = await context.newPage();
@@ -1498,6 +1588,8 @@ try {
     const pages = context.pages().length;
     await toggle(other);
     assert.equal(context.pages().length, pages, 'no Options tab');
+    const activeUrl = () => worker.evaluate(async () => (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0]?.url ?? '');
+    await waitFor(async () => (await activeUrl()).startsWith('https://mail.google.com/'), 'Gmail to come forward');
     // Pressed again, it is over the Gmail tab it went to.
     await worker.evaluate(async () => {
       const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });

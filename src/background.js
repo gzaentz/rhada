@@ -10,21 +10,23 @@ const GMAIL = 'https://mail.google.com/';
 
 // The toolbar button and the keyboard shortcut both land here.
 chrome.action.onClicked.addListener(async (tab) => {
-  if (!tab.url?.startsWith(GMAIL)) {
-    await showGmail();
-    return;
-  }
+  const gmail = tab.url?.startsWith(GMAIL);
   try {
     await chrome.tabs.sendMessage(tab.id, { type: 'toggle' });
   } catch {
     // Chrome adds the panel only to Gmail tabs that load after the extension
-    // does. A tab already open when it was installed or reloaded gets it now.
+    // does. A tab already open when it was installed or reloaded gets it now,
+    // and so does any other site: pressing the shortcut there lets Rhada into
+    // that tab only (activeTab), for as long as it shows that site.
     try {
       await chrome.scripting.insertCSS({ target: { tabId: tab.id }, files: ['content.css'] });
       await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['dist/content.js'] });
       await chrome.tabs.sendMessage(tab.id, { type: 'toggle' });
     } catch {
-      // The tab is still loading or shows an error page: Chrome adds the panel once it loads.
+      // Gmail still loading or showing an error page gets the panel once it
+      // loads. A page Chrome keeps extensions out of, such as a new tab or
+      // the Web Store, sends you to Gmail instead.
+      if (!gmail) await showGmail();
     }
   }
 });

@@ -1,7 +1,7 @@
 # Rhada
 
-Edits the Gmail draft you are writing, in place, or suggests the reply. No
-screenshot, no copy and paste. A Chrome extension that uses your own OpenRouter
+Edits the Gmail draft you are writing, in place, or suggests the reply. Works
+in any text box on any other site too. No screenshot, no copy and paste. A Chrome extension that uses your own OpenRouter
 key.
 
 <img src="docs/panel.png" width="760" alt="The Rhada panel over a Gmail draft, showing a polished version with Copy and Replace draft" />
@@ -62,6 +62,13 @@ words and press **Enter**, or press **Enter** while speaking to run them. The
 first press checks that Chrome can recognize speech on this computer and may
 download its language model. Where it cannot, the mic says so and hears
 nothing.
+
+**Any site.** Click into a text box anywhere, such as a LinkedIn message, a
+CRM reply box or a form, and press the shortcut. Rhada polishes what is there,
+or waits for an instruction if the box is empty, and **Enter** writes the
+result in as if you typed it, so **Cmd+Z** undoes it. Outside Gmail it sees
+only that box, the site's name and the tab's title: paste or attach anything
+else it should know. Ready on Reply and Learn from my edits work in Gmail only.
 
 **Attach for context.** Paste a screenshot into the box, drop files on the
 panel, or click the paperclip. Images, PDFs, Word (.docx), Excel (.xlsx) and
@@ -138,6 +145,10 @@ edit. Its text is `CONTRACT` in `src/prompt.js`.
   your latest 5 kept edits and the lessons learned from them. It does not see your signature, quoted mail or
   the email's own attachments, only files you add in the panel. To read the whole thread, Rhada presses Gmail's **Expand all**
   when older messages are collapsed, so they stay open on screen.
+- Outside Gmail, Rhada can read a site only after you press the shortcut or
+  the toolbar button there, and only in that tab (Chrome's "active tab"
+  permission). It reads the text box with the cursor, the site name and the
+  tab title, nothing else on the page.
 - With **Ready on Reply** on, the thread goes to OpenRouter as soon as you open
   a reply, before you press the shortcut.
 - Kept edits are stored next to the key, readable only by the extension, and
@@ -179,6 +190,9 @@ edit. Its text is `CONTRACT` in `src/prompt.js`.
 - On a thread longer than about 40,000 tokens, the oldest messages are left
   out, and the model is told how many.
 - Your signature and quoted mail are never sent or changed.
+- Outside Gmail: a text box inside an embedded frame, and editors that draw
+  their own text (such as Google Docs), are not reached. Chrome's own pages
+  and the Web Store keep extensions out; there the shortcut goes to Gmail.
 - Old Office files (.doc, .xls) and PowerPoint are not read: save them as PDF,
   .docx or .xlsx. Excel dates read as day numbers, and each sheet stops at
   2,000 rows. Text from a file stops at 60,000 characters, and a PDF at 15 MB.

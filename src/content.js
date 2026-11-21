@@ -4,7 +4,7 @@ import { BLANK } from './edits.js';
 import { createDictation } from './dictation.js';
 import { FOLLOW_UP } from './prompt.js';
 import { FileProblem, MAX_FILES, readAttachment } from './files.js';
-import { fieldOf, focusedField, pageContext, readField, replaceField } from './field.js';
+import { fieldOf, focusedField, pageContext, readField, readPage, replaceField } from './field.js';
 
 // In Gmail it knows drafts, threads and sends. Anywhere else it works on the
 // text box with the cursor, and knows only the site.
@@ -78,6 +78,7 @@ button.icon.listening { color: #0a0a0a; background: var(--bright); animation: br
 button.chip { padding: 3px 11px; border: 1px solid var(--line-2); border-radius: 999px; color: var(--fg);
   font-size: 12.5px; line-height: 18px; }
 button.chip:hover { border-color: #5c5c5c; background: rgba(255, 255, 255, .04); }
+button.chip[aria-pressed="true"] { color: #0a0a0a; border-color: var(--bright); background: var(--bright); }
 [hidden] { display: none !important; }
 `;
 
@@ -541,9 +542,27 @@ function openPanel(body = findBody()) {
   const mark = icon(HORNS, true);
   mark.setAttribute('class', 'mark');
 
-  const chips = el('div', { className: 'chips', hidden: !replying });
+  // Outside Gmail the writer can let the text around the box go along, site by site.
+  const site = !IN_GMAIL && body ? context.page.site : '';
+  let pageOn = false;
+  const pageChip = el('button', { type: 'button', className: 'chip', textContent: 'Read this page', hidden: !site });
+  pageChip.title = `Sends the text around this box with each request. Remembered for ${site}.`;
+  pageChip.setAttribute('aria-pressed', 'false');
+  const setPage = (on) => {
+    pageOn = on;
+    pageChip.setAttribute('aria-pressed', String(on));
+    // An empty box with nothing written yet gets a suggested reply to what is on the page.
+    if (on && !draft.text && state.status === 'idle' && !state.turns.length) run('');
+  };
+  pageChip.addEventListener('click', () => {
+    chrome.runtime.sendMessage({ type: 'set-page-site', site, on: !pageOn }).catch(() => {});
+    setPage(!pageOn);
+    input.focus();
+  });
+  const chips = el('div', { className: 'chips', hidden: !replying && !site });
+  if (site) chips.append(pageChip);
   for (const [label, instruction] of context?.thread.at(-1)?.mine ? WAITING : QUICK) {
-    const chip = el('button', { type: 'button', className: 'chip', textContent: label });
+    const chip = el('button', { type: 'button', className: 'chip', textContent: label, hidden: !replying });
     chip.addEventListener('click', () => {
       dictation.cancel();
       run(instruction);
@@ -800,7 +819,8 @@ function openPanel(body = findBody()) {
           });
           await reading;
         }
-        return { ...context, draft: state.original, turns, instruction, attachments };
+        const onPage = pageOn && body.isConnected ? readPage(body) : '';
+        return { ...context, onPage, draft: state.original, turns, instruction, attachments };
       }),
       instruction,
       attachments,
@@ -998,6 +1018,12 @@ function openPanel(body = findBody()) {
   // A draft with text gets the first pass. An empty reply gets a suggested one.
   else if (!resumed && !carried && (draft.text || context.thread.length)) run('');
   else render();
+  if (site) {
+    chrome.runtime.sendMessage({ type: 'page-site', site }).then(
+      (on) => on && host.isConnected && setPage(true),
+      () => {},
+    );
+  }
 }
 
 function onMessage(msg) {

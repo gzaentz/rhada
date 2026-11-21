@@ -67,8 +67,11 @@ nothing.
 CRM reply box or a form, and press the shortcut. Rhada polishes what is there,
 or waits for an instruction if the box is empty, and **Enter** writes the
 result in as if you typed it, so **Cmd+Z** undoes it. Outside Gmail it sees
-only that box, the site's name and the tab's title: paste or attach anything
-else it should know. Ready on Reply and Learn from my edits work in Gmail only.
+only that box, the site's name and the tab's title, until you press **Read
+this page** in the panel. Then the text on screen around the box, usually the
+conversation you are answering, goes with each request, and an empty box gets
+a suggested reply. Rhada remembers the choice for that site; press it again to
+stop. Ready on Reply and Learn from my edits work in Gmail only.
 
 **Attach for context.** Paste a screenshot into the box, drop files on the
 panel, or click the paperclip. Images, PDFs, Word (.docx), Excel (.xlsx) and
@@ -148,7 +151,9 @@ edit. Its text is `CONTRACT` in `src/prompt.js`.
 - Outside Gmail, Rhada can read a site only after you press the shortcut or
   the toolbar button there, and only in that tab (Chrome's "active tab"
   permission). It reads the text box with the cursor, the site name and the
-  tab title, nothing else on the page.
+  tab title. With **Read this page** pressed for a site, it also sends the
+  text shown around the box, at most 20,000 characters, read when you run a
+  request. The sites you turned it on for are stored on this computer only.
 - With **Ready on Reply** on, the thread goes to OpenRouter as soon as you open
   a reply, before you press the shortcut.
 - Kept edits are stored next to the key, readable only by the extension, and
@@ -193,6 +198,9 @@ edit. Its text is `CONTRACT` in `src/prompt.js`.
 - Outside Gmail: a text box inside an embedded frame, and editors that draw
   their own text (such as Google Docs), are not reached. Chrome's own pages
   and the Web Store keep extensions out; there the shortcut goes to Gmail.
+- **Read this page** takes the nearest part of the page around the box with
+  some text in it. On some sites that includes menus and names, or misses
+  older messages the site has not loaded; scroll up first to include them.
 - Old Office files (.doc, .xls) and PowerPoint are not read: save them as PDF,
   .docx or .xlsx. Excel dates read as day numbers, and each sheet stops at
   2,000 rows. Text from a file stops at 60,000 characters, and a PDF at 15 MB.

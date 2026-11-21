@@ -260,6 +260,22 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     );
     return true;
   }
+  // Sites where the writer turned on reading the page, by hostname.
+  if (msg?.type === 'page-site') {
+    chrome.storage.local.get('pageSites').then(
+      ({ pageSites = {} }) => sendResponse(Boolean(pageSites[msg.site])),
+      () => sendResponse(false),
+    );
+    return true;
+  }
+  if (msg?.type === 'set-page-site') {
+    chrome.storage.local.get('pageSites').then(({ pageSites = {} }) => {
+      if (msg.on) pageSites[msg.site] = true;
+      else delete pageSites[msg.site];
+      return chrome.storage.local.set({ pageSites });
+    });
+    return false;
+  }
   if (msg?.type !== 'check-key') return false;
   (async () => {
     const { openRouterKey, model } = await loadSettings();

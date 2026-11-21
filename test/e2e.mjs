@@ -221,6 +221,13 @@ const FIELDS_PAGE = `<!doctype html><title>Messages | Example</title>
 <textarea id="plain" rows="8" cols="80">hey dana, thx for reaching out. pricing for 20 seats is $40/seat. lmk if u want a call</textarea>
 <div id="editable" contenteditable="true" style="min-height: 60px"><div>hey dana, thx</div></div>
 <div id="editor" contenteditable="true" style="min-height: 60px"><p>hey dana</p></div>
+<section id="chat">
+  <p><b>Dana Lee</b> 9:12 AM</p>
+  <p>Hi! We are a team of 20 and looking at tools for our support inbox. Could you tell me what the yearly price would be for 20 seats, and whether you offer a pilot first? We would want to start in March if the numbers work, and our IT team will need to see your security overview before we sign anything.</p>
+  <p><b>Dana Lee</b> 9:14 AM</p>
+  <p>Also, is there a discount if we pay for the whole year upfront? Our finance team asked me to check before Friday.</p>
+  <textarea id="reply" rows="3" cols="80"></textarea>
+</section>
 <script>
   let inputs = 0;
   document.getElementById('plain').addEventListener('input', () => (inputs += 1));
@@ -1578,6 +1585,38 @@ try {
     assert.equal(await page.locator('[data-draft-editor]').count(), 1);
     await page.keyboard.press('Escape');
     await page.close();
+  });
+
+  await test('on any site, Read this page sends the conversation around the box, and is remembered for the site', async () => {
+    const page = await site('#reply');
+    const asked = calls.length;
+    await toggle(page);
+    const chip = page.getByRole('button', { name: 'Read this page' });
+    await chip.waitFor();
+    assert.equal(await chip.getAttribute('aria-pressed'), 'false');
+    await page.waitForTimeout(300);
+    assert.equal(calls.length, asked, 'an empty box with the page off asks for nothing');
+    await chip.click();
+    await page.getByRole('button', { name: 'Replace draft' }).waitFor();
+    assert.equal(await chip.getAttribute('aria-pressed'), 'true');
+    await shot(page, 'read-page');
+    const { prompt } = calls.at(-1);
+    assert.match(prompt, /<on_page>\nDana Lee 9:12 AM\n\nHi! We are a team of 20[\s\S]*before Friday\.\n<\/on_page>/);
+    assert.match(prompt, /<draft>\n\n<\/draft>/);
+    assert.doesNotMatch(prompt, /hey dana/, 'only the part of the page around the box');
+    await waitFor(async () => (await worker.evaluate(() => chrome.storage.local.get('pageSites'))).pageSites?.['example.net'], 'the site to be remembered');
+    await page.close();
+
+    // Opened again on the site, it reads the page and suggests a reply at once.
+    const again = await site('#reply');
+    await toggle(again);
+    await again.getByRole('button', { name: 'Replace draft' }).waitFor();
+    assert.equal(await again.getByRole('button', { name: 'Read this page' }).getAttribute('aria-pressed'), 'true');
+    assert.match(calls.at(-1).prompt, /<on_page>/);
+    await again.getByRole('button', { name: 'Read this page' }).click();
+    await waitFor(async () => !(await worker.evaluate(() => chrome.storage.local.get('pageSites'))).pageSites?.['example.net'], 'the site to be forgotten');
+    await again.keyboard.press('Escape');
+    await again.close();
   });
 
   await test('where Rhada cannot run, the shortcut goes to Gmail instead of opening Options', async () => {

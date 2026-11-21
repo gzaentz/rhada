@@ -81,3 +81,22 @@ export async function replaceField(field, text) {
   if (!field.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))) return true;
   return document.execCommand('insertHTML', false, html);
 }
+
+const PAGE_MIN = 400;
+const PAGE_MAX = 20_000;
+
+// The text on screen around the box, usually the conversation it answers:
+// the nearest enclosing part of the page with at least PAGE_MIN characters
+// besides the box's own. Kept to PAGE_MAX, from the end, nearest the box.
+export function readPage(field) {
+  const own = isPlain(field) ? '' : field.innerText.trim();
+  let text = '';
+  for (let node = field; ; ) {
+    node = node.parentElement ?? node.getRootNode().host;
+    if (!node || node === document.documentElement) break;
+    const all = node.innerText ?? '';
+    text = (own ? all.replace(own, '') : all).replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+    if (text.length >= PAGE_MIN) break;
+  }
+  return text.length > PAGE_MAX ? `…${text.slice(-PAGE_MAX)}` : text;
+}

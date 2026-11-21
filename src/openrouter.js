@@ -153,12 +153,19 @@ export function keepNothing(endpoints) {
 
 // A public lookup, so the key is not sent. Also knows variants such as ":nitro".
 export async function modelExists(model, { signal } = {}) {
-  const path = model.split('/').map(encodeURIComponent).join('/');
   try {
-    await request(`/models/${path}/endpoints`, { signal });
+    await request(modelPath(model), { signal });
     return true;
   } catch (err) {
     if (err.status === 404) return false;
     throw err;
   }
 }
+
+// What the model can read, such as ["text", "image", "file"]. Public too.
+export async function modelInputs(model, { signal } = {}) {
+  const { data } = await (await request(modelPath(model), { signal })).json();
+  return data?.architecture?.input_modalities ?? [];
+}
+
+const modelPath = (model) => `/models/${model.split('/').map(encodeURIComponent).join('/')}/endpoints`;

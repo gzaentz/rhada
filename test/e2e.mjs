@@ -4,7 +4,7 @@
 // Gmail's Trusted Types policy. OpenRouter is stubbed: its
 // error bodies were recorded from the live API, its stream follows its docs.
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -210,6 +210,10 @@ Thanks for thinking of us. We can't take on 20 seats right now, but I'll reach o
 // What the panel shows: links and bold rendered, not as markup.
 const rendered = (text) => text.replace(/\*\*/g, '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
 
+// A message's text, also when it carries images or files as parts.
+const textOf = (content) => (typeof content === 'string' ? content : content.filter((part) => part.type === 'text').map((part) => part.text).join('\n'));
+const partsOf = (content) => (typeof content === 'string' ? [] : content.filter((part) => part.type !== 'text'));
+
 function sse(text, finish = 'stop', provider = 'Amazon Bedrock') {
   const chunk = (delta, reason = null, extra = {}) =>
     `data: ${JSON.stringify({ id: 'gen-test', object: 'chat.completion.chunk', created: 1794000000, model: 'anthropic/claude-opus-5.5', provider, choices: [{ index: 0, delta, finish_reason: reason, native_finish_reason: reason }], ...extra })}\n\n`;
@@ -260,23 +264,26 @@ try {
     if (path === '/api/v1/endpoints/zdr') {
       const endpoint = (provider, tag) => ({ name: `${provider} | anthropic/claude-haiku-5.5-20261015`, model_id: 'anthropic/claude-haiku-5.5', model_name: 'Anthropic: Claude Haiku 5.5', provider_name: provider, tag, safety_retention: false });
       const safety = { name: 'Google | meta/muse-spark-1.3-20260902', model_id: 'meta/muse-spark-1.3', model_name: 'Meta: Muse Spark 1.3', provider_name: 'Google', tag: 'google-vertex/global', safety_retention: true };
-      return json(200, { data: [endpoint('Amazon Bedrock', 'amazon-bedrock'), endpoint('Google', 'google-vertex/global'), safety] });
+      const textOnly = { ...endpoint('Amazon Bedrock', 'amazon-bedrock'), name: 'Amazon Bedrock | example/reads-text', model_id: 'example/reads-text', model_name: 'Example: Reads Text' };
+      return json(200, { data: [endpoint('Amazon Bedrock', 'amazon-bedrock'), endpoint('Google', 'google-vertex/global'), safety, textOnly] });
     }
     if (path.startsWith('/api/v1/models/')) {
-      return ['anthropic/claude-haiku-5.5', 'example/keeps-data', 'meta/muse-spark-1.3'].some((id) => path === `/api/v1/models/${id}/endpoints`)
-        ? json(200, { data: { id: 'anthropic/claude-haiku-5.5', endpoints: [] } })
+      const id = ['anthropic/claude-haiku-5.5', 'example/keeps-data', 'meta/muse-spark-1.3', 'example/reads-text'].find((known) => path === `/api/v1/models/${known}/endpoints`);
+      const input_modalities = id === 'example/reads-text' ? ['text'] : ['text', 'image', 'file'];
+      return id
+        ? json(200, { data: { id, architecture: { modality: 'text+image+file->text', input_modalities, output_modalities: ['text'] }, endpoints: [] } })
         : json(404, { error: { message: 'Not Found', code: 404 } });
     }
     if (headers.authorization !== 'Bearer sk-or-test-fake') return json(401, { error: { message: 'User not found.', code: 401 } });
     if (path === '/api/v1/key') return json(200, { data: { label: 'sk-or-...ake', limit: null, limit_remaining: null, usage: 0, is_free_tier: false } });
     const body = request.postDataJSON();
     // `prompt` is the first message: the thread, the draft and the first instruction.
-    calls.push({ headers, body, prompt: body.messages[1].content });
+    calls.push({ headers, body, prompt: textOf(body.messages[1].content) });
     // Folding a sent edit into the lessons.
     if (body.messages[0].content.startsWith('You keep a short list of lessons')) {
       return route.fulfill({ contentType: 'text/event-stream', body: sse(LESSONS, 'stop') }).catch(() => {});
     }
-    const asked = body.messages.at(-1).content;
+    const asked = textOf(body.messages.at(-1).content);
     const wait = /slowly/.test(asked) ? 1500 : delay;
     if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
     // A request the extension cancelled meanwhile has nothing left to answer.
@@ -1365,6 +1372,109 @@ try {
     await page.getByRole('alert').waitFor();
     assert.equal(await page.getByRole('alert').innerText(), 'OpenRouter sent this to Example Cloud, which is not on the zero-retention list. Nothing was shown.');
     assert.equal(await shownText(page), before, 'the last version stays');
+    await page.keyboard.press('Escape');
+    await page.close();
+  });
+
+  // A small PNG, made in the page, pasted the way a screenshot is.
+  const pasteImage = (page) =>
+    page.locator('textarea[slot="input"]').evaluate(async (box) => {
+      const canvas = new OffscreenCanvas(40, 30);
+      const paint = canvas.getContext('2d');
+      paint.fillStyle = '#c33';
+      paint.fillRect(0, 0, 40, 30);
+      const file = new File([await canvas.convertToBlob({ type: 'image/png' })], 'image.png', { type: 'image/png' });
+      const data = new DataTransfer();
+      data.items.add(file);
+      box.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+    });
+  const fixture = (name) => join(dirname(fileURLToPath(import.meta.url)), 'fixtures', name);
+
+  await test('a pasted screenshot goes to the model with its request, and stays with that turn', async () => {
+    const page = await open('fresh');
+    await toggle(page);
+    await page.getByRole('button', { name: 'Replace draft' }).waitFor();
+    await pasteImage(page);
+    await page.locator('.file:not(.reading) canvas').waitFor();
+    assert.equal(await page.locator('textarea[slot="input"]').inputValue(), '', 'the paste is not typed into the box');
+    await page.keyboard.type('shorter');
+    await shot(page, 'pasted-image');
+    await page.keyboard.press('Enter');
+    await page.locator('.file').waitFor({ state: 'detached' });
+    await waitFor(async () => (await shownText(page)) === rendered(SHORTER), 'the shorter version');
+    const sent = calls.at(-1).body;
+    const [image] = partsOf(sent.messages.at(-1).content);
+    assert.equal(image.type, 'image_url');
+    assert.match(image.image_url.url, /^data:image\/png;base64,/);
+    assert.equal(sent.plugins, undefined, 'no file reader for an image');
+    assert.match(textOf(sent.messages.at(-1).content), /<instruction>\nshorter\n<\/instruction>/);
+    // The next change still sees the image, in the turn it came with.
+    await page.keyboard.type('Give two options');
+    await page.keyboard.press('Enter');
+    await waitFor(async () => calls.at(-1).body.messages.length === sent.messages.length + 2, 'the follow-up');
+    const next = calls.at(-1).body.messages;
+    assert.equal(partsOf(next.at(-1).content).length, 0, 'the new request has no image of its own');
+    assert.equal(partsOf(next.at(-3).content)[0].image_url.url, image.image_url.url);
+    await page.getByRole('button', { name: 'Replace draft' }).waitFor();
+    await page.keyboard.press('Escape');
+    await page.close();
+  });
+
+  await test('Word and Excel are read here and sent as text, and a PDF goes to the model itself', async () => {
+    const page = await open('fresh');
+    await toggle(page);
+    await page.getByRole('button', { name: 'Replace draft' }).waitFor();
+    const picker = page.locator('input[type="file"]');
+    const file = (name, mimeType) => ({ name, mimeType, buffer: readFileSync(fixture(name)) });
+    await picker.setInputFiles([file('table.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'), file('prices.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'), { name: 'terms.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\n%%EOF\n') }]);
+    await picker.setInputFiles([{ name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('Not this one.') }]);
+    await waitFor(async () => (await page.locator('.file:not(.reading)').count()) === 4, 'four files read');
+    await page.getByRole('button', { name: 'Remove notes.txt' }).click();
+    assert.equal(await page.locator('.file').count(), 3);
+    // An old Word file says what to do instead, and the others stay.
+    await picker.setInputFiles([{ name: 'old.doc', mimeType: 'application/msword', buffer: Buffer.from('binary') }]);
+    await waitFor(async () => (await page.getByRole('alert').innerText()) === "old.doc can't be read. Save it as a PDF, .docx or .xlsx and attach that.", 'the old file to be refused');
+    assert.equal(await page.locator('.file').count(), 3);
+    await shot(page, 'attachments');
+    await page.locator('textarea[slot="input"]').fill('shorter');
+    await page.keyboard.press('Enter');
+    await waitFor(async () => (await shownText(page)) === rendered(SHORTER), 'the shorter version');
+    const sent = calls.at(-1).body;
+    const text = textOf(sent.messages.at(-1).content);
+    assert.match(text, /<attachment name="table\.docx">\nSeat pricing\nTier\tPrice\nTeam\t\$40 per seat/);
+    assert.match(text, /<attachment name="prices\.xlsx">\nSheet: Pricing\nTier\tSeats\tPrice/);
+    assert.doesNotMatch(text, /Not this one/);
+    const [pdf] = partsOf(sent.messages.at(-1).content);
+    assert.equal(pdf.type, 'file');
+    assert.equal(pdf.file.filename, 'terms.pdf');
+    assert.match(pdf.file.file_data, /^data:application\/pdf;base64,/);
+    assert.deepEqual(sent.plugins, [{ id: 'file-parser', pdf: { engine: 'native' } }], 'the model reads the PDF itself');
+    assert.equal(await page.getByRole('alert').count(), 0, 'the old problem is gone');
+    await page.keyboard.press('Escape');
+    await page.close();
+  });
+
+  await test('a model that cannot read images says so, and keeps the image for another try', async () => {
+    const page = await open('fresh');
+    await toggle(page);
+    await page.getByRole('button', { name: 'Replace draft' }).waitFor();
+    await worker.evaluate(() => chrome.storage.local.set({ model: 'example/reads-text' }));
+    await pasteImage(page);
+    await page.locator('.file:not(.reading)').waitFor();
+    const before = calls.length;
+    await page.keyboard.type('shorter');
+    await page.keyboard.press('Enter');
+    await page.getByRole('alert').waitFor();
+    assert.equal(await page.getByRole('alert').innerText(), `"example/reads-text" can't read images. Remove them, or pick a model that can in Options.`);
+    assert.equal(await page.getByRole('button', { name: 'Open Options' }).isVisible(), true);
+    assert.equal(calls.length, before, 'nothing was sent');
+    assert.equal(await page.locator('.file').count(), 1, 'the image is back, ready to resend');
+    assert.equal(await page.locator('textarea[slot="input"]').inputValue(), 'shorter');
+    await worker.evaluate(() => chrome.storage.local.remove('model'));
+    await page.locator('textarea[slot="input"]').focus();
+    await page.keyboard.press('Enter');
+    await waitFor(async () => (await shownText(page)) === rendered(SHORTER), 'the shorter version');
+    assert.equal(partsOf(calls.at(-1).body.messages.at(-1).content)[0].type, 'image_url');
     await page.keyboard.press('Escape');
     await page.close();
   });

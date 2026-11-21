@@ -1,7 +1,7 @@
 import { EDITS_KEPT, EDITS_KEY, EDITS_SENT, loadEdits, loadSettings } from './settings.js';
-import { buildMessages } from './prompt.js';
+import { buildMessages, inputsNeeded } from './prompt.js';
 import { cleanLessons, distillMessages, lesson } from './edits.js';
-import { NetworkError, OpenRouterError, checkKey, costOf, endpointsFor, isAllowed, keepNothing, modelExists, streamChat, zdrList } from './openrouter.js';
+import { NetworkError, OpenRouterError, checkKey, costOf, endpointsFor, isAllowed, keepNothing, modelExists, modelInputs, streamChat, zdrList } from './openrouter.js';
 
 // The API key stays out of reach of scripts running inside web pages.
 chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' });
@@ -75,6 +75,24 @@ async function allowedFor(model) {
 
 const noProvider = (model) => `No provider runs "${model}" with zero data retention. Pick another model in Options.`;
 
+// Whether the model reads images and PDFs, asked once per model while the
+// worker runs. If OpenRouter cannot say, the request goes ahead and its own
+// error, if any, is shown.
+const inputs = new Map();
+async function cannotRead(model, needed) {
+  if (!needed.length) return null;
+  if (!inputs.has(model)) inputs.set(model, modelInputs(model, { signal: AbortSignal.timeout(10_000) }).catch(() => null));
+  const known = await inputs.get(model);
+  if (!known?.length) {
+    inputs.delete(model);
+    return null;
+  }
+  const missing = needed.filter((type) => !known.includes(type));
+  if (!missing.length) return null;
+  const what = missing.length === 2 ? 'images or PDFs' : missing[0] === 'image' ? 'images' : 'PDFs';
+  return `"${model}" can't read ${what}. Remove them, or pick a model that can in Options.`;
+}
+
 // The shortcut as Chrome has it now, such as ⌃⇧E, or '' when none is set.
 async function shortcut() {
   const commands = await chrome.commands.getAll();
@@ -109,7 +127,14 @@ chrome.runtime.onConnect.addListener((port) => {
     const edits = settings.learnFromEdits ? (await loadEdits()).slice(-EDITS_SENT) : [];
     if (context.prefetch) post({ type: 'start', shortcut: await shortcut() });
     const started = Date.now();
+    const messages = buildMessages(settings, context, edits);
+    const needed = inputsNeeded(messages);
     try {
+      const unreadable = await cannotRead(settings.model, needed);
+      if (unreadable) {
+        post({ type: 'error', code: 'settings', message: unreadable });
+        return;
+      }
       // Named one by one, so nothing goes to an endpoint that keeps data,
       // whatever the OpenRouter account allows. No such endpoint: no request.
       let text = '';
@@ -127,7 +152,10 @@ chrome.runtime.onConnect.addListener((port) => {
             provider: { zdr: true, data_collection: 'deny', only },
             // Models that reason before answering do it briefly: edits should feel instant.
             reasoning: { effort: 'low' },
-            messages: buildMessages(settings, context, edits),
+            // A PDF is read by the model itself, on the same endpoint. Left to
+            // OpenRouter, it could go to an outside reader (Mistral OCR) first.
+            ...(needed.includes('file') && { plugins: [{ id: 'file-parser', pdf: { engine: 'native' } }] }),
+            messages,
           },
           onText(piece) {
             text += piece;

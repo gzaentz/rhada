@@ -3,6 +3,7 @@ import { textToHtml, textToNodes } from './format.js';
 import { BLANK } from './edits.js';
 import { createDictation } from './dictation.js';
 import { FOLLOW_UP } from './prompt.js';
+import { FileProblem, MAX_FILES, readAttachment } from './files.js';
 
 const FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
 
@@ -29,6 +30,16 @@ const CSS = `
 .top { display: flex; align-items: flex-start; gap: 4px; padding: 13px 10px 12px 16px; }
 .mark { flex: none; margin: 4px 10px 0 0; color: var(--bright); }
 slot { display: block; flex: 1; min-width: 0; padding-top: 1px; }
+.files { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 16px 12px 42px; }
+.file { box-sizing: border-box; display: flex; align-items: center; gap: 7px; max-width: 240px; height: 30px;
+  padding: 0 2px 0 10px; border: 1px solid var(--line-2); border-radius: 8px; color: var(--fg);
+  font-size: 12.5px; line-height: 18px; transition: opacity .15s; }
+.file.image { padding-left: 3px; }
+.file.reading { opacity: .45; }
+.file canvas { flex: none; width: 22px; height: 22px; border-radius: 5px; }
+.file span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.file button.icon { flex: none; width: 24px; height: 24px; border-radius: 6px; }
+.card.dropping { border-color: var(--bright); }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 16px 14px 42px; }
 .notice { padding: 11px 18px 12px; border-top: 1px solid var(--line); color: var(--muted); }
 .notice.error { color: var(--danger); }
@@ -124,10 +135,29 @@ function icon(d, solid = false) {
 const HORNS = 'M1.5 2.35C2.47 7.55 4.75 9.82 8 9.82C11.25 9.82 13.53 7.55 14.5 2.35C14.18 10.47 11.9 13.72 8 13.72C4.1 13.72 1.83 10.47 1.5 2.35Z';
 const SLIDERS = 'M2 5h6m4 0h2M2 11h2m4 0h6M12 5a2 2 0 1 1-4 0 2 2 0 0 1 4 0zM8 11a2 2 0 1 1-4 0 2 2 0 0 1 4 0z';
 const CROSS = 'M4 4l8 8m0-8l-8 8';
+const CLIP = 'M10.5 4.75 5.9 9.35a1.25 1.25 0 0 0 1.77 1.77l4.95-4.95a2.5 2.5 0 0 0-3.54-3.54L4.13 7.58a3.75 3.75 0 0 0 5.3 5.3l3.82-3.82';
 const MIC = 'M6 4a2 2 0 0 1 4 0v3.5a2 2 0 0 1-4 0zM3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5';
 
 // A [what is needed] the model left for the writer to fill in, not a [link](url).
 const BLANKS = new RegExp(`(${BLANK.source})`, 'g');
+
+// A small square of an attached image. A canvas, since Gmail's page may not
+// allow data: images.
+function thumbnail(data) {
+  const canvas = el('canvas', { width: 44, height: 44 });
+  canvas.setAttribute('aria-hidden', 'true');
+  const binary = atob(data.slice(data.indexOf(',') + 1));
+  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  createImageBitmap(new Blob([bytes])).then(
+    (bitmap) => {
+      const side = Math.min(bitmap.width, bitmap.height);
+      canvas.getContext('2d').drawImage(bitmap, (bitmap.width - side) / 2, (bitmap.height - side) / 2, side, side, 0, 0, 44, 44);
+      bitmap.close();
+    },
+    () => {},
+  );
+  return canvas;
+}
 
 // "4.2 s · 1.3¢": how long the model took and what OpenRouter charged.
 function describeMeta(meta) {
@@ -453,6 +483,11 @@ function openPanel(body = findBody()) {
     meta: carried ? carried.turns.at(-1).meta : (handed?.meta ?? null),
     problem: null, // { message, code } while the last request has failed
     lastInstruction: '',
+    // Files waiting to go with the next request: { name, attachment, ready },
+    // where attachment is null while the file is read.
+    pending: [],
+    lastFiles: [], // the attachments of the last request, back in the box if it fails
+    fileProblem: null,
     writeFailed: false,
     draftChanged: false, // the draft was edited while the panel was open
     job: null,
@@ -482,6 +517,9 @@ function openPanel(body = findBody()) {
     return button;
   };
   const micButton = iconButton('Speak', MIC);
+  const attachButton = iconButton('Attach a file', CLIP);
+  const picker = el('input', { type: 'file', multiple: true, hidden: true, accept: 'image/*,.pdf,.docx,.xlsx,.txt,.csv,.tsv,.md,.json' });
+  const files = el('div', { className: 'files', hidden: true });
   const optionsButton = iconButton('Options', SLIDERS);
   const closeButton = iconButton('Close', CROSS);
   const mark = icon(HORNS, true);
@@ -499,14 +537,14 @@ function openPanel(body = findBody()) {
   }
 
   const top = el('div', { className: 'top' });
-  top.append(mark, el('slot', { name: 'input' }), micButton, optionsButton, closeButton);
+  top.append(mark, el('slot', { name: 'input' }), attachButton, micButton, optionsButton, closeButton, picker);
   const foot = el('div', { className: 'foot' });
   foot.append(hint, meta, second, primary);
   const card = el('div', { className: 'card' });
   card.setAttribute('role', 'dialog');
   card.setAttribute('aria-modal', 'true');
   card.setAttribute('aria-label', 'Edit draft');
-  card.append(top, chips, notice, out, note, foot);
+  card.append(top, files, chips, notice, out, note, foot);
   const shadow = host.attachShadow({ mode: 'open' });
   shadow.append(el('style', { textContent: CSS }), card);
 
@@ -555,11 +593,13 @@ function openPanel(body = findBody()) {
     out.setAttribute('aria-busy', String(status === 'loading'));
 
     const message =
-      status === 'nobody' ? 'Click into a draft.' : (problem?.message ?? dictation.problem ?? '');
+      status === 'nobody' ? 'Click into a draft.' : (problem?.message ?? state.fileProblem ?? dictation.problem ?? '');
     // An alert is read out each time its text is set.
     if (notice.textContent !== message) notice.textContent = message;
     notice.hidden = !notice.textContent;
-    notice.classList.toggle('error', Boolean(problem));
+    notice.classList.toggle('error', Boolean(problem || state.fileProblem));
+    attachButton.hidden = status === 'nobody';
+    attachButton.disabled = state.pending.length >= MAX_FILES;
 
     primary.hidden = !ready;
     primary.disabled = locked;
@@ -583,7 +623,7 @@ function openPanel(body = findBody()) {
     else if (status === 'loading') hint.replaceChildren('Working… · ', ...closes);
     else if (status === 'nobody') hint.replaceChildren(...closes);
     else if (problem) hint.replaceChildren(key('Enter'), ' tries again · ', ...closes);
-    else if (!ready) hint.replaceChildren(key('Enter'), ' runs it · ', ...closes);
+    else if (!ready || state.pending.length) hint.replaceChildren(key('Enter'), ' runs it · ', ...closes);
     else if (locked) hint.replaceChildren(...closes);
     else hint.replaceChildren(key('Enter'), ' replaces the draft · ', ...closes);
 
@@ -605,6 +645,70 @@ function openPanel(body = findBody()) {
     else input.placeholder = 'Ask for a change, e.g. shorter, warmer, more direct';
   }
 
+  // Files for the next request, each with a way to take it off.
+  function showFiles() {
+    files.replaceChildren(
+      ...state.pending.map((entry) => {
+        const { name, attachment } = entry;
+        const item = el('div', { className: 'file', title: attachment ? name : `Reading ${name}…` });
+        item.classList.toggle('reading', !attachment);
+        if (attachment?.kind === 'image') {
+          item.classList.add('image');
+          item.append(thumbnail(attachment.data));
+        }
+        const remove = iconButton(`Remove ${name}`, CROSS);
+        remove.addEventListener('click', () => {
+          state.pending = state.pending.filter((other) => other !== entry);
+          state.fileProblem = null;
+          showFiles();
+          render();
+          input.focus();
+        });
+        item.append(el('span', { textContent: name }), remove);
+        return item;
+      }),
+    );
+    files.hidden = !state.pending.length;
+  }
+
+  // Read here, as they are added. Word and Excel never leave as files.
+  function addFiles(list) {
+    state.fileProblem = null;
+    for (const file of list) {
+      if (state.pending.length >= MAX_FILES) {
+        state.fileProblem = `Attach up to ${MAX_FILES} files at a time.`;
+        break;
+      }
+      const entry = { name: file.name || 'Pasted image', attachment: null, ready: null };
+      entry.ready = readAttachment(file).then(
+        (attachment) => {
+          entry.attachment = attachment;
+          entry.name = attachment.name;
+        },
+        (err) => {
+          if (!state.pending.includes(entry)) return;
+          state.pending = state.pending.filter((other) => other !== entry);
+          state.fileProblem = err instanceof FileProblem ? err.message : `${entry.name} can't be read.`;
+        },
+      ).then(() => {
+        if (!host.isConnected) return;
+        showFiles();
+        render();
+      });
+      state.pending.push(entry);
+    }
+    showFiles();
+    render();
+  }
+
+  // The files waiting, once read, for the request about to start.
+  function takeFiles() {
+    const taken = state.pending.filter((entry) => entry.attachment).map((entry) => entry.attachment);
+    state.pending = [];
+    showFiles();
+    return taken;
+  }
+
   // A failed change costs nothing: the last full version comes back into view
   // and the instruction goes back into the box, selected, ready to resend.
   function fail(message, code) {
@@ -618,14 +722,20 @@ function openPanel(body = findBody()) {
       input.value = state.lastInstruction;
       input.select();
     }
+    if (state.lastFiles.length && !state.pending.length) {
+      state.pending = state.lastFiles.map((attachment) => ({ name: attachment.name, attachment, ready: null }));
+      showFiles();
+    }
     render();
   }
 
   // Shows a request as it streams in, and keeps it once it finishes.
-  function follow(job, instruction) {
+  function follow(job, instruction, attachments = []) {
     if (state.job !== job) state.job?.cancel();
     state.job = job;
     state.lastInstruction = instruction;
+    state.lastFiles = attachments;
+    state.fileProblem = null;
     state.status = 'loading';
     state.problem = null;
     // The last version stays in view, dimmed, until the new one starts to arrive.
@@ -642,7 +752,8 @@ function openPanel(body = findBody()) {
         show(job.text);
       } else if (type === 'done') {
         state.job = null;
-        state.turns.push({ instruction, result: job.result, meta: job.meta });
+        state.turns.push({ instruction, attachments, result: job.result, meta: job.meta });
+        state.lastFiles = [];
         if (!state.original && !forward && threadId) suggested = { threadId, turns: [...state.turns] };
         state.result = job.result;
         state.meta = job.meta;
@@ -654,14 +765,14 @@ function openPanel(body = findBody()) {
         fail(job.problem.message, job.problem.code);
       } else if (type === 'off') {
         // Ready on Reply was turned off as it started: ask now instead.
-        run(instruction);
+        run(instruction, attachments);
       }
     });
   }
 
   // Older messages are expanded and read once, before the first request.
   let reading = null;
-  function run(instruction) {
+  function run(instruction, attachments = takeFiles()) {
     const turns = [...state.turns];
     follow(
       startJob(async () => {
@@ -673,9 +784,10 @@ function openPanel(body = findBody()) {
           });
           await reading;
         }
-        return { ...context, draft: state.original, turns, instruction };
+        return { ...context, draft: state.original, turns, instruction, attachments };
       }),
       instruction,
+      attachments,
     );
   }
 
@@ -705,8 +817,13 @@ function openPanel(body = findBody()) {
     if (dictation.state === 'listening' && (await dictation.finish()) === null) return;
     if (dictation.state === 'preparing') dictation.cancel();
     if (!host.isConnected) return;
+    // A file still being read goes with this request, so wait for it.
+    if (state.pending.some((entry) => !entry.attachment)) {
+      await Promise.all(state.pending.map((entry) => entry.ready));
+      if (!host.isConnected) return;
+    }
     const instruction = input.value.trim();
-    if (instruction) {
+    if (instruction || state.pending.length) {
       input.value = '';
       run(instruction);
     } else if (state.problem) {
@@ -726,7 +843,7 @@ function openPanel(body = findBody()) {
       close();
     } else if (e.key === 'Tab') {
       // Tab goes round the panel. Past its edge, keys would reach Gmail.
-      const stops = [input, micButton, optionsButton, closeButton, ...chips.querySelectorAll('button'), second, primary].filter(
+      const stops = [input, attachButton, micButton, optionsButton, closeButton, ...files.querySelectorAll('button'), ...chips.querySelectorAll('button'), second, primary].filter(
         (stop) => stop.isConnected && !stop.disabled && stop.getClientRects().length,
       );
       const at = stops.indexOf(e.composedPath()[0]);
@@ -768,6 +885,41 @@ function openPanel(body = findBody()) {
     dictation.toggle();
     input.focus();
   });
+  attachButton.addEventListener('click', () => picker.click());
+  picker.addEventListener('change', () => {
+    addFiles([...picker.files]);
+    picker.value = '';
+    input.focus();
+  });
+  // A pasted screenshot or file joins the request instead of the text.
+  input.addEventListener('paste', (e) => {
+    const pasted = [...(e.clipboardData?.files ?? [])];
+    if (!pasted.length || state.status === 'nobody') return;
+    e.preventDefault();
+    addFiles(pasted);
+  });
+  // Files dropped on the panel stay with it. Gmail never sees the drop.
+  const carriesFiles = (e) => e.dataTransfer?.types.includes('Files');
+  for (const type of ['dragenter', 'dragover']) {
+    card.addEventListener(type, (e) => {
+      if (!carriesFiles(e) || state.status === 'nobody') return;
+      e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = 'copy';
+      card.classList.add('dropping');
+    });
+  }
+  card.addEventListener('dragleave', (e) => {
+    if (!card.contains(e.relatedTarget)) card.classList.remove('dropping');
+  });
+  card.addEventListener('drop', (e) => {
+    card.classList.remove('dropping');
+    if (!carriesFiles(e) || state.status === 'nobody') return;
+    e.preventDefault();
+    e.stopPropagation();
+    addFiles([...e.dataTransfer.files]);
+    input.focus();
+  });
   // Typing while speaking stops listening and keeps both.
   input.addEventListener('input', () => {
     if (dictation.state === 'listening' || dictation.state === 'preparing') dictation.cancel();
@@ -804,9 +956,9 @@ function openPanel(body = findBody()) {
     // A suggestion still being written for the thread, to hand to its reply box.
     handOff() {
       if (state.status !== 'loading' || state.original || !threadId || !state.job) return null;
-      const { job, turns, lastInstruction: instruction, result, meta } = state;
+      const { job, turns, lastInstruction: instruction, lastFiles: attachments, result, meta } = state;
       state.job = null;
-      return { job, threadId, turns: [...turns], instruction, result, meta };
+      return { job, threadId, turns: [...turns], instruction, attachments, result, meta };
     },
   };
 
@@ -820,7 +972,7 @@ function openPanel(body = findBody()) {
   if (carried) show(state.result);
   if (live) {
     if (state.result) show(state.result);
-    follow(live, handed.instruction ?? '');
+    follow(live, handed.instruction ?? '', handed.attachments ?? []);
   }
   // A draft with text gets the first pass. An empty reply gets a suggested one.
   else if (!resumed && !carried && (draft.text || context.thread.length)) run('');

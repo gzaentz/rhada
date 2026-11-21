@@ -63,6 +63,14 @@ first press checks that Chrome can recognize speech on this computer and may
 download its language model. Where it cannot, the mic says so and hears
 nothing.
 
+**Attach for context.** Paste a screenshot into the box, drop files on the
+panel, or click the paperclip. Images, PDFs, Word (.docx), Excel (.xlsx) and
+text files such as .csv work, up to 6 at a time. They go with your next
+instruction, or alone if you press **Enter** on an empty box, and the model
+keeps them for the rest of the conversation. Word and Excel are read on this
+computer and only their text is sent. Images are sent at most 1568 px a side.
+PDFs are read by the model itself.
+
 **Cost and time.** Under each result the panel shows how long the model took
 and what OpenRouter charged, such as `4.2 s · 1.3¢`.
 
@@ -128,13 +136,17 @@ edit. Its text is `CONTRACT` in `src/prompt.js`.
 - The model sees your settings, the draft text, the subject, the recipients,
   the messages of the open thread (the newest, up to about 40,000 tokens) and
   your latest 5 kept edits and the lessons learned from them. It does not see your signature, quoted mail or
-  attachments. To read the whole thread, Rhada presses Gmail's **Expand all**
+  the email's own attachments, only files you add in the panel. To read the whole thread, Rhada presses Gmail's **Expand all**
   when older messages are collapsed, so they stay open on screen.
 - With **Ready on Reply** on, the thread goes to OpenRouter as soon as you open
   a reply, before you press the shortcut.
 - Kept edits are stored next to the key, readable only by the extension, and
   never leave this computer except inside a request. **Forget them** in Options
   removes them.
+- Files you add go only inside your requests, to the same zero-retention
+  endpoints. A PDF is read by the model's own provider: Rhada asks OpenRouter
+  for native reading, so it never goes to an outside PDF reader. If your model
+  cannot read images or PDFs, the panel says so and sends nothing.
 - Speech never leaves this computer. Recognition runs only with Chrome's
   on-device setting, and never falls back to a speech service. The words it
   types go into the box, and only what you run is sent.
@@ -167,6 +179,10 @@ edit. Its text is `CONTRACT` in `src/prompt.js`.
 - On a thread longer than about 40,000 tokens, the oldest messages are left
   out, and the model is told how many.
 - Your signature and quoted mail are never sent or changed.
+- Old Office files (.doc, .xls) and PowerPoint are not read: save them as PDF,
+  .docx or .xlsx. Excel dates read as day numbers, and each sheet stops at
+  2,000 rows. Text from a file stops at 60,000 characters, and a PDF at 15 MB.
+- Files go again with every later change, so a large PDF costs more each time.
 - Every change sends the whole conversation again. With the default model a
   change costs well under a cent.
 - Stopping a request does not always stop its charge: Amazon Bedrock bills the

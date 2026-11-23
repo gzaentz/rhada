@@ -24,7 +24,7 @@ const manifest = JSON.parse(readFileSync(join(loaded, 'manifest.json'), 'utf8'))
 manifest.host_permissions.push('https://example.net/*');
 writeFileSync(join(loaded, 'manifest.json'), JSON.stringify(manifest));
 // A local templates file is added when Rhada loads (replacing any real one in the copy).
-const LOCAL_TEMPLATES = JSON.stringify([{ name: 'Batch delivered', when: 'New leads are uploaded', text: 'Hey [first name],\n\nJust uploaded your batch.' }]);
+const LOCAL_TEMPLATES = JSON.stringify({ templates: [{ name: 'Batch delivered', when: 'New leads are uploaded', text: 'Hey [first name],\n\nJust uploaded your batch.' }], facts: 'Book a call: https://cal.example.com/sam' });
 writeFileSync(join(loaded, 'templates.local.json'), LOCAL_TEMPLATES);
 
 // SHOTS=<folder> npm test also saves a picture of each state, to look at.
@@ -353,10 +353,11 @@ try {
   const extensionId = new URL(worker.url()).host;
   // The local templates file was added on install; the tests below start without templates.
   let seeded;
-  for (let i = 0; i < 50 && !seeded?.templates; i++) { seeded = await worker.evaluate(() => chrome.storage.local.get(['templates', 'templatesFile'])); await new Promise((r) => setTimeout(r, 100)); }
-  assert.deepEqual(seeded.templates, JSON.parse(LOCAL_TEMPLATES));
+  for (let i = 0; i < 50 && !seeded?.templates; i++) { seeded = await worker.evaluate(() => chrome.storage.local.get(['templates', 'templatesFile', 'facts'])); await new Promise((r) => setTimeout(r, 100)); }
+  assert.deepEqual(seeded.templates, JSON.parse(LOCAL_TEMPLATES).templates);
+  assert.equal(seeded.facts, 'Book a call: https://cal.example.com/sam');
   assert.equal(seeded.templatesFile, LOCAL_TEMPLATES);
-  await worker.evaluate(() => chrome.storage.local.remove('templates'));
+  await worker.evaluate(() => chrome.storage.local.remove(['templates', 'facts']));
 
   // Same entry point as the toolbar button and the keyboard shortcut.
   const toggle = async (page) => {

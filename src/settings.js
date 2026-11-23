@@ -63,6 +63,31 @@ export function addTemplates(saved, incoming) {
   return normalizeTemplates([...have, ...normalizeTemplates(incoming).filter((t) => !names.has(t.name))]);
 }
 
+// What a templates.local.json adds: a list of templates, or { templates, facts }.
+// Facts and templates the writer has not changed since the previous version of
+// the file take the new version; what they typed or edited stays.
+export function fromLocalFile(saved, file, previous) {
+  const read = (text) => {
+    const data = text ? JSON.parse(text) : null;
+    return Array.isArray(data) ? { templates: data, facts: '' } : { templates: data?.templates ?? [], facts: String(data?.facts ?? '').trim() };
+  };
+  const now = read(file);
+  const before = previous ? read(previous) : { templates: [], facts: '' };
+  const facts = String(saved.facts ?? '').trim();
+  // A template still as the previous file wrote it takes the file's new version.
+  const same = (a, b) => a && b && a.when === b.when && a.text === b.text;
+  const olds = normalizeTemplates(before.templates);
+  const fresh = normalizeTemplates(now.templates);
+  const kept = normalizeTemplates(saved.templates).map((t) => {
+    const next = fresh.find((f) => f.name === t.name);
+    return next && same(t, olds.find((o) => o.name === t.name)) ? next : t;
+  });
+  return {
+    templates: addTemplates(kept, now.templates),
+    ...(now.facts && (!facts || facts === before.facts) && { facts: now.facts }),
+  };
+}
+
 // "# Name" lines start each template; text before the first is ignored.
 function parseTemplates(text = '') {
   const templates = [];

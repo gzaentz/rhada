@@ -1,4 +1,4 @@
-import { EDITS_KEPT, EDITS_KEY, EDITS_SENT, addTemplates, loadEdits, loadSettings, normalizeTemplates } from './settings.js';
+import { EDITS_KEPT, EDITS_KEY, EDITS_SENT, fromLocalFile, loadEdits, loadSettings, normalizeTemplates } from './settings.js';
 import { autoTemplates, buildMessages, inputsNeeded, splitTemplateLine } from './prompt.js';
 import { cleanLessons, distillMessages, lesson } from './edits.js';
 import { NetworkError, OpenRouterError, checkKey, costOf, endpointsFor, isAllowed, keepNothing, modelExists, modelInputs, streamChat, zdrList } from './openrouter.js';
@@ -109,10 +109,9 @@ async function shortcut() {
 // removed in Options stays removed.
 chrome.runtime.onInstalled.addListener(async () => {
   const file = await fetch(chrome.runtime.getURL('templates.local.json')).then((r) => (r.ok ? r.text() : ''), () => '');
-  const incoming = file && JSON.parse(file);
-  const { templates, templatesFile } = await chrome.storage.local.get(['templates', 'templatesFile']);
-  if (!Array.isArray(incoming) || templatesFile === file) return;
-  await chrome.storage.local.set({ templates: addTemplates(templates, incoming), templatesFile: file });
+  const saved = await chrome.storage.local.get(['templates', 'facts', 'templatesFile']);
+  if (!file || saved.templatesFile === file) return;
+  await chrome.storage.local.set({ ...fromLocalFile(saved, file, saved.templatesFile), templatesFile: file });
 });
 
 chrome.runtime.onConnect.addListener((port) => {

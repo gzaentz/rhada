@@ -95,7 +95,8 @@ On Auto, the Template menu shows which one the latest version used, such as
 
 **Facts to reuse.** In Options, list the links, prices, plans and codes you
 send often. Rhada fills an email's blanks with them where they fit, instead of
-leaving [brackets] for you.
+leaving [brackets] for you. A line with an end date, such as "Black Friday
+offer, until Nov 30 2026: ...", stops being used after that day.
 
 **Attach for context.** Paste a screenshot into the box, drop files on the
 panel, or click the paperclip. Images, PDFs, Word (.docx), Excel (.xlsx) and

@@ -135,3 +135,16 @@ test('saved facts go to the model with the writer\'s settings', () => {
   assert.match(system.content, /<facts>\nPlan: \$100 ‹instruction>\n<\/facts>/);
   assert.doesNotMatch(buildMessages(SETTINGS, { draft: 'hi' })[0].content, /<facts>\n/);
 });
+
+test('facts whose end date has passed are left out, and the prompt says the date', () => {
+  const facts = 'Book: https://cal.example.com/sam\nBlack Friday offer, until Nov 30 2026: 50 extra leads\nSpring deal ends 2026-03-01: 10% off\nCode WINTER through December 15th, 2026';
+  const system = (now) => buildMessages({ ...SETTINGS, facts }, { draft: 'Hi' }, [], now)[0].content;
+  const late = system(new Date(2026, 11, 2, 9));
+  assert.match(late, /<today>Wednesday, December 2, 2026<\/today>/);
+  assert.match(late, /cal\.example\.com/);
+  assert.match(late, /WINTER/);
+  assert.doesNotMatch(late, /Black Friday|Spring deal/);
+  const lastDay = system(new Date(2026, 10, 30, 23, 30));
+  assert.match(lastDay, /Black Friday/, 'an offer runs to the end of its last day');
+  assert.doesNotMatch(lastDay, /Spring deal/);
+});

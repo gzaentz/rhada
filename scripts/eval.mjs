@@ -4,13 +4,17 @@
 // extension/templates.local.json, the cases from eval.local.json. Both stay
 // out of git; eval.example.json shows the format.
 //
-//   OPENROUTER_API_KEY=... npm run eval
+//   npm run eval
 //   npm run eval -- --runs 3 --model anthropic/claude-sonnet-5.5 --only cancel
 //
 // Each run is one real request (about $0.0004 on the default model). It stops
 // starting new ones once --max-cost dollars (default 0.50) are spent, and
 // exits 1 if any check fails.
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { DEFAULTS, fromLocalFile } from '../src/settings.js';
 import { autoTemplates, buildMessages, inputsNeeded, templateLine } from '../src/prompt.js';
@@ -29,8 +33,8 @@ const { values: opts } = parseArgs({
 });
 
 const read = (path) => readFileSync(new URL(path, root), 'utf8');
-const apiKey = process.env.OPENROUTER_API_KEY;
-if (!apiKey) fail('Set OPENROUTER_API_KEY to the key Rhada uses.');
+const apiKey = process.env.OPENROUTER_API_KEY || chromeKey();
+if (!apiKey) fail('No key found. Save one in Rhada\'s Options in Chrome, or set OPENROUTER_API_KEY.');
 if (!existsSync(new URL(opts.cases, root))) fail(`No ${opts.cases}. Copy eval.example.json to eval.local.json and write your cases.`);
 const file = existsSync(new URL(opts.templates, root)) ? read(opts.templates) : '';
 const settings = { ...DEFAULTS, model: opts.model, ...(file && fromLocalFile({}, file)) };
@@ -111,6 +115,28 @@ function check(c, used, text) {
   if (c.blanks === false && blanks.length) problems.push(`left blanks: ${blanks.join(' ')}`);
   if (/^\s*Template:/im.test(text)) problems.push('the "Template:" line was shown');
   return problems;
+}
+
+// The key saved in Rhada's Options, read from Chrome's storage for this
+// unpacked copy. Its ID comes from the extension folder's path. Never printed.
+function chromeKey() {
+  const hash = createHash('sha256').update(fileURLToPath(new URL('extension', root))).digest('hex').slice(0, 32);
+  const id = [...hash].map((c) => String.fromCharCode(97 + parseInt(c, 16))).join('');
+  const home = homedir();
+  const chrome = [
+    join(home, 'Library/Application Support/Google/Chrome'),
+    join(home, '.config/google-chrome'),
+    join(process.env.LOCALAPPDATA ?? '', 'Google/Chrome/User Data'),
+  ].find((dir) => existsSync(dir));
+  if (!chrome) return '';
+  const keys = readdirSync(chrome).flatMap((profile) => {
+    const dir = join(chrome, profile, 'Local Extension Settings', id);
+    if (!existsSync(dir)) return [];
+    return readdirSync(dir)
+      .filter((f) => /\.(log|ldb)$/.test(f))
+      .flatMap((f) => readFileSync(join(dir, f), 'latin1').match(/sk-or-v1-[0-9a-f]{64}/g) ?? []);
+  });
+  return keys.at(-1) ?? '';
 }
 
 function fail(message) {

@@ -258,9 +258,10 @@ each reply: the template Auto picked, text it must or must not contain, and
 git) and write your own cases; `today` sets the date, for offers that end.
 
 ```bash
-OPENROUTER_API_KEY=... npm run eval -- --runs 3
+npm run eval -- --runs 3
 ```
 
+It uses the key saved in Rhada's Options in Chrome (or `OPENROUTER_API_KEY`).
 Each case costs about $0.0004 per run on the default model. It uses the same
 zero-retention endpoints as the extension and stops at `--max-cost` (default
 $0.50). Run it after changing the prompt or a template.

@@ -76,8 +76,8 @@ stop. Ready on Reply and Learn from my edits work in Gmail only.
 **Templates.** In Options, under Templates, click **Add template** and give it
 a name, when to use it, and the message itself. The panel's Template menu
 then offers three ways to use them. **Auto** (the default) sends your
-templates with each request, and Rhada writes in one only when its "Use when"
-clearly fits the email; it never reshapes a draft you already wrote unless
+templates with each request, and Rhada writes in one only when the email is
+the situation its "Use when" describes; it never reshapes a draft you already wrote unless
 you ask. Pick a template by name to write with it at once, with any files you
 attached and anything you typed. **No template** leaves them out. Rhada fills
 the structure with facts from the conversation, your files and the page,

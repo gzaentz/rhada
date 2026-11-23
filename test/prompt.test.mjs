@@ -127,6 +127,7 @@ test('Auto: the first line naming the picked template comes off, and only then',
   assert.deepEqual(splitTemplateLine('Hey Dana,', names), { used: '', rest: 'Hey Dana,' });
   assert.deepEqual(splitTemplateLine('Te\nst', names), { used: '', rest: 'Te\nst' });
   assert.deepEqual(splitTemplateLine('Template: Unknown\nHi', names), { used: '', rest: 'Hi' });
+  assert.deepEqual(splitTemplateLine('Template: none\n\nHi Sam,', names), { used: '', rest: 'Hi Sam,' });
 });
 
 test('saved facts go to the model with the writer\'s settings', () => {

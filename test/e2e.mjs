@@ -1619,38 +1619,80 @@ try {
     await again.close();
   });
 
-  await test('a saved template is a button that writes with it, the attached sheet and the conversation, and stays for later changes', async () => {
-    await worker.evaluate(() => chrome.storage.local.set({ templates: 'Notes first, ignored\n# Research share\nHi [first name],\n\nThese 3 stood out:\n[Company] - [why it fits]\n\n# Fellow names\n[Name], found your 3 fellow [Name]s.' }));
+  await test('templates are made in Options, and the panel menu writes with one or lets Rhada pick by "use when"', async () => {
+    await worker.evaluate(() => chrome.storage.local.remove('templates'));
+    const options = await context.newPage();
+    await options.setViewportSize({ width: 1440, height: 900 });
+    await options.goto(`chrome-extension://${extensionId}/options.html`);
+    await options.getByRole('button', { name: 'Add template' }).click();
+    await options.getByLabel('Template name').fill('Research share');
+    await options.getByLabel('Use when').fill('They replied with interest');
+    await options.getByLabel('Template message').fill('Hi [first name],\n\nThese 3 stood out:\n[Company] - [why it fits]');
+    await options.getByRole('button', { name: 'Add template' }).click();
+    await options.getByLabel('Template name').nth(1).fill('Fellow names');
+    await options.getByLabel('Template message').nth(1).fill('[Name], found your 3 fellow [Name]s.');
+    await options.getByLabel('Template name').nth(0).focus();
+    const stored = async () => (await worker.evaluate(() => chrome.storage.local.get('templates'))).templates;
+    await waitFor(async () => (await stored())?.length === 2, 'both templates to save');
+    assert.deepEqual((await stored())[0], { name: 'Research share', when: 'They replied with interest', text: 'Hi [first name],\n\nThese 3 stood out:\n[Company] - [why it fits]' });
+    await shot(options, 'template-options', { whole: true });
+    // Remove takes a card out of storage too.
+    await options.getByLabel('Template name').nth(1).fill('Spare');
+    await options.getByRole('button', { name: 'Add template' }).click();
+    await options.getByLabel('Template name').nth(2).fill('Gone soon');
+    await options.getByLabel('Template message').nth(2).fill('x');
+    await waitFor(async () => (await stored())?.length === 3, 'the third template');
+    await options.getByRole('button', { name: 'Remove template Gone soon' }).click();
+    await waitFor(async () => (await stored())?.length === 2, 'the removal');
+    await options.getByLabel('Template name').nth(1).fill('Fellow names');
+    await waitFor(async () => (await stored())?.[1]?.name === 'Fellow names', 'the rename');
+    await options.close();
+
     const page = await site('#reply');
     await toggle(page);
-    const button = page.getByRole('button', { name: 'Research share' });
-    await button.waitFor();
-    assert.equal(await page.getByRole('button', { name: 'Fellow names' }).isVisible(), true);
-    await page.getByRole('button', { name: 'Read this page' }).click();
+    const menu = page.getByRole('combobox', { name: 'Template' });
+    await menu.waitFor();
+    assert.deepEqual(await menu.locator('option').allTextContents(), ['Template: Auto', 'No template', 'Research share', 'Fellow names', 'Edit templates…']);
+    // On Auto, a request carries the saved list with each "use when".
+    let asked = calls.length;
+    await page.locator('[data-draft-editor] textarea').fill('Reply to them');
+    await page.keyboard.press('Enter');
+    await waitFor(() => calls.length > asked, 'the auto request');
     await page.getByRole('button', { name: 'Replace draft' }).waitFor();
-    await page.locator('input[type="file"]').setInputFiles([{ name: 'prices.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: readFileSync(fixture('prices.xlsx')) }]);
-    await waitFor(async () => (await page.locator('.file:not(.reading)').count()) === 1, 'the sheet to be read');
-    const asked = calls.length;
-    await button.click();
+    assert.match(calls.at(-1).prompt, /<templates>\n<template name="Research share" use_when="They replied with interest">\nHi \[first name\],[\s\S]*<template name="Fellow names" use_when="not said">/);
+    await page.keyboard.press('Escape');
+    await page.close();
+
+    const chosen = await site('#reply');
+    await toggle(chosen);
+    await chosen.getByRole('button', { name: 'Read this page' }).click();
+    await chosen.getByRole('button', { name: 'Replace draft' }).waitFor();
+    await chosen.locator('input[type="file"]').setInputFiles([{ name: 'prices.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: readFileSync(fixture('prices.xlsx')) }]);
+    await waitFor(async () => (await chosen.locator('.file:not(.reading)').count()) === 1, 'the sheet to be read');
+    asked = calls.length;
+    await chosen.getByRole('combobox', { name: 'Template' }).selectOption({ label: 'Research share' });
     await waitFor(() => calls.length > asked, 'the template request');
-    await page.getByRole('button', { name: 'Replace draft' }).waitFor();
-    await shot(page, 'template');
+    await chosen.getByRole('button', { name: 'Replace draft' }).waitFor();
+    await shot(chosen, 'template');
     const latest = () => textOf(calls.at(-1).body.messages.at(-1).content);
     const all = () => calls.at(-1).body.messages.map((m) => textOf(m.content)).join('\n');
     const prompt = latest();
     assert.match(prompt, /<attachment name="prices\.xlsx">\nSheet: Pricing/);
-    assert.match(prompt, /<template name="Research share">\nHi \[first name\],\n\nThese 3 stood out:\n\[Company\] - \[why it fits\]\n<\/template>\n\n(<to_fill>[\s\S]*<\/to_fill>\n\n)?<instruction>\nWrite it with my "Research share" template\.\n<\/instruction>/);
+    assert.match(prompt, /<template name="Research share" chosen="yes">\nHi \[first name\],\n\nThese 3 stood out:\n\[Company\] - \[why it fits\]\n<\/template>\n\n(<to_fill>[\s\S]*<\/to_fill>\n\n)?<instruction>\nWrite it with my "Research share" template\.\n<\/instruction>/);
     assert.match(calls.at(-1).prompt, /<on_page>\nDana Lee/);
-    assert.equal(await page.locator('.file').count(), 0, 'the sheet went with it');
+    assert.doesNotMatch(all(), /<templates>\n<template/, 'a chosen template replaces the list');
+    assert.equal(await chosen.locator('.file').count(), 0, 'the sheet went with it');
     // A later change still has the template and the sheet in the conversation.
-    await page.locator('[data-draft-editor] textarea').fill('Shorter');
-    await page.keyboard.press('Enter');
+    await chosen.locator('[data-draft-editor] textarea').fill('Shorter');
+    await chosen.keyboard.press('Enter');
     await waitFor(() => latest().includes('Shorter'), 'the change');
-    assert.match(all(), /<template name="Research share">[\s\S]*<instruction>\nShorter\n<\/instruction>$/);
-    await page.getByRole('button', { name: 'Read this page' }).click();
-    await page.keyboard.press('Escape');
+    assert.match(all(), /<template name="Research share" chosen="yes">[\s\S]*<instruction>\nShorter\n<\/instruction>$/);
+    // No template sends neither.
+    await chosen.getByRole('combobox', { name: 'Template' }).selectOption({ label: 'No template' });
+    await chosen.getByRole('button', { name: 'Read this page' }).click();
+    await chosen.keyboard.press('Escape');
     await worker.evaluate(() => chrome.storage.local.remove(['templates', 'pageSites']));
-    await page.close();
+    await chosen.close();
   });
 
   await test('where Rhada cannot run, the shortcut goes to Gmail instead of opening Options', async () => {

@@ -64,6 +64,14 @@
       button:hover { color: var(--bright); }
       button:focus-visible { outline: 2px solid var(--bright); outline-offset: 2px; }
 
+      .template { padding: 14px 16px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+      .template + .template { margin-top: 12px; }
+      .template input, .template textarea { background: var(--bg); }
+      .template .name-input { padding: 0; border: 0; background: none; color: var(--bright); font-weight: 500; box-shadow: none !important; }
+      .template .row { margin-bottom: 10px; }
+      .template .sub { display: block; margin: 12px 0 6px; color: var(--muted); font-size: 12.5px; line-height: 18px; }
+      #templateList:not(:empty) { margin-bottom: 14px; }
+      button.add { color: var(--fg); }
       details { margin-top: 48px; padding-top: 18px; border-top: 1px solid var(--line); }
       summary { display: inline-flex; align-items: center; gap: 9px; cursor: pointer; color: var(--muted);
         font: 400 11px/16px var(--carved); letter-spacing: .28em; text-transform: uppercase; list-style: none; border-radius: 3px; }
@@ -98,6 +106,7 @@
         form > section, footer { grid-column: 1; }
         .side { display: block; grid-column: 2; grid-row: 1 / -1; }
         textarea { max-height: 200px; }
+        .template textarea { max-height: 120px; }
         footer { padding-bottom: 40px; }
       }
       @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
@@ -175,11 +184,9 @@
 
         <section>
           <h2>Templates</h2>
-          <div class="field">
-            <div class="row"><label for="templates">Message templates</label></div>
-            <textarea id="templates" spellcheck="false" placeholder="# Research share&#10;Hi [first name], I ran some research for [company]. These 3 stood out: …"></textarea>
-            <p class="help">Start each with a line like <kbd># Research share</kbd>. Each becomes a button in the panel that writes in its structure, with facts from the conversation and your files.</p>
-          </div>
+          <div id="templateList"></div>
+          <button type="button" id="addTemplate" class="add">Add template</button>
+          <p class="help">Pick one from the panel's Template menu, or leave it on Auto: Rhada then uses the one whose "Use when" fits the email.</p>
         </section>
 
         <details>

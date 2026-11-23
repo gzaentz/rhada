@@ -78,6 +78,11 @@ button.icon.listening { color: #0a0a0a; background: var(--bright); animation: br
 button.chip { padding: 3px 11px; border: 1px solid var(--line-2); border-radius: 999px; color: var(--fg);
   font-size: 12.5px; line-height: 18px; }
 button.chip:hover { border-color: #5c5c5c; background: rgba(255, 255, 255, .04); }
+select.menu { appearance: none; padding: 3px 26px 3px 11px; border: 1px solid var(--line-2); border-radius: 999px; cursor: pointer;
+  color: var(--fg); font: 500 12.5px/18px ${FONT}; background: transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%238c8c8c' stroke-width='1.4'/%3E%3C/svg%3E") no-repeat right 10px center; }
+select.menu:hover { border-color: #5c5c5c; }
+select.menu:focus-visible { outline: 2px solid var(--bright); outline-offset: 2px; }
+select.menu option { color: #ececec; background: #0a0a0a; }
 button.chip[aria-pressed="true"] { color: #0a0a0a; border-color: var(--bright); background: var(--bright); }
 [hidden] { display: none !important; }
 `;
@@ -570,7 +575,12 @@ function openPanel(body = findBody()) {
     });
     chips.append(chip);
   }
-  // The writer's saved templates, one button each. The files waiting go with it.
+  // The writer's saved templates, in a menu. Auto lets the model pick the one
+  // whose "use when" fits; a chosen one is written with now, with the files waiting.
+  let templateMode = 'auto';
+  const templateMenu = el('select', { className: 'menu', hidden: true });
+  templateMenu.setAttribute('aria-label', 'Template');
+  templateMenu.title = 'Template';
   async function useTemplate({ name, text }) {
     dictation.cancel();
     if (state.pending.some((entry) => !entry.attachment)) {
@@ -584,11 +594,26 @@ function openPanel(body = findBody()) {
   }
   function showTemplates(templates) {
     if (!host.isConnected || !Array.isArray(templates) || !templates.length) return;
-    for (const template of templates) {
-      const chip = el('button', { type: 'button', className: 'chip', textContent: template.name, title: 'Write it with this template' });
-      chip.addEventListener('click', () => useTemplate(template));
-      chips.append(chip);
-    }
+    const option = (value, label) => el('option', { value, textContent: label });
+    templateMenu.append(
+      option('auto', 'Template: Auto'),
+      option('none', 'No template'),
+      ...templates.map((template, i) => option(String(i), template.name)),
+      option('edit', 'Edit templates…'),
+    );
+    templateMenu.addEventListener('change', () => {
+      const value = templateMenu.value;
+      if (value === 'edit') {
+        templateMenu.value = templateMode;
+        chrome.runtime.sendMessage({ type: 'open-options' }).catch(() => {});
+        return;
+      }
+      templateMode = value;
+      if (value !== 'auto' && value !== 'none') useTemplate(templates[Number(value)]);
+      else input.focus();
+    });
+    templateMenu.hidden = false;
+    chips.prepend(templateMenu);
     chips.hidden = false;
   }
 
@@ -841,7 +866,7 @@ function openPanel(body = findBody()) {
           await reading;
         }
         const onPage = pageOn && body.isConnected ? readPage(body) : '';
-        return { ...context, onPage, draft: state.original, turns, instruction, attachments };
+        return { ...context, onPage, templateMode: templateMode === 'none' ? 'none' : 'auto', draft: state.original, turns, instruction, attachments };
       }),
       instruction,
       attachments,

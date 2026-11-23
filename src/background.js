@@ -1,4 +1,4 @@
-import { EDITS_KEPT, EDITS_KEY, EDITS_SENT, loadEdits, loadSettings, parseTemplates } from './settings.js';
+import { EDITS_KEPT, EDITS_KEY, EDITS_SENT, loadEdits, loadSettings, normalizeTemplates } from './settings.js';
 import { buildMessages, inputsNeeded } from './prompt.js';
 import { cleanLessons, distillMessages, lesson } from './edits.js';
 import { NetworkError, OpenRouterError, checkKey, costOf, endpointsFor, isAllowed, keepNothing, modelExists, modelInputs, streamChat, zdrList } from './openrouter.js';
@@ -263,7 +263,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   // Sites where the writer turned on reading the page, by hostname.
   if (msg?.type === 'templates') {
     loadSettings().then(
-      (settings) => sendResponse(parseTemplates(settings.templates)),
+      (settings) => sendResponse(normalizeTemplates(settings.templates).map(({ name, text }) => ({ name, text }))),
       () => sendResponse([]),
     );
     return true;

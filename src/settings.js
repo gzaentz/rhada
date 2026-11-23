@@ -17,8 +17,9 @@ export const DEFAULTS = {
   rules: 'Plain English. Short sentences. Friendly and direct. No filler, no hype.',
   // What their edits have taught, updated after each changed email they send. Editable.
   lessons: '',
-  // Message structures to write with, each starting with a "# Name" line.
-  templates: '',
+  // Message structures to write with: [{ name, when, text }]. Older versions
+  // kept one text with a "# Name" line before each.
+  templates: [],
   // The edit that runs when the panel opens on a draft with text.
   defaultInstruction:
     'Polish this draft: fix typos and grammar, tighten it, and keep my meaning and voice.',
@@ -39,8 +40,21 @@ export const EDITS_KEY = 'edits';
 export const EDITS_KEPT = 20;
 export const EDITS_SENT = 5;
 
+// The saved templates, cleaned: named, with text, at most 12.
+export function normalizeTemplates(saved) {
+  const list = typeof saved === 'string' ? parseTemplates(saved) : Array.isArray(saved) ? saved : [];
+  return list
+    .map((t) => ({
+      name: String(t?.name ?? '').trim().slice(0, 40),
+      when: String(t?.when ?? '').trim().slice(0, 300),
+      text: String(t?.text ?? '').replace(/\r\n?/g, '\n').trim().slice(0, 4000),
+    }))
+    .filter((t) => t.name && t.text)
+    .slice(0, 12);
+}
+
 // "# Name" lines start each template; text before the first is ignored.
-export function parseTemplates(text = '') {
+function parseTemplates(text = '') {
   const templates = [];
   for (const line of text.replace(/\r\n?/g, '\n').split('\n')) {
     const heading = line.match(/^#\s+(.+?)\s*$/);
@@ -48,9 +62,7 @@ export function parseTemplates(text = '') {
     else templates.at(-1)?.lines.push(line);
   }
   return templates
-    .map(({ name, lines }) => ({ name, text: lines.join('\n').trim() }))
-    .filter((template) => template.text)
-    .slice(0, 12);
+    .map(({ name, lines }) => ({ name, text: lines.join('\n').trim() }));
 }
 
 export async function loadSettings() {

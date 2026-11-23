@@ -1,9 +1,10 @@
-import { DEFAULTS, EDITS_KEY, FLAGS, loadEdits, loadSettings } from './settings.js';
+import { DEFAULTS, EDITS_KEY, FLAGS, loadEdits, loadSettings, normalizeTemplates } from './settings.js';
 import { CONTRACT } from './prompt.js';
 
 // Every change saves as you go. The key and model are checked once you leave
 // the field, and a problem stays under the model until it is fixed.
-const FIELDS = Object.keys(DEFAULTS);
+// Templates are a list with an editor of their own, below.
+const FIELDS = Object.keys(DEFAULTS).filter((name) => name !== 'templates');
 const CHECKED = ['openRouterKey', 'model'];
 const form = document.getElementById('form');
 const status = document.getElementById('status');
@@ -103,6 +104,8 @@ document.getElementById('contract').textContent = CONTRACT;
 loadSettings().then((settings) => {
   saved = settings;
   fill(settings);
+  // Half-written cards come back as typed.
+  for (const template of Array.isArray(settings.templates) ? settings.templates : normalizeTemplates(settings.templates)) addCard(template ?? {});
   if (settings.openRouterKey) verify();
   else field('openRouterKey').focus();
 });
@@ -139,7 +142,10 @@ form.addEventListener('change', (e) => {
   if (CHECKED.includes(name)) verify();
   else now();
 });
-addEventListener('pagehide', now);
+addEventListener('pagehide', () => {
+  if (templateTimer) saveTemplates();
+  now();
+});
 
 for (const button of restores) {
   button.addEventListener('click', () => {
@@ -167,3 +173,64 @@ chrome.commands.getAll().then((commands) => {
 document.getElementById('shortcuts').addEventListener('click', () => {
   chrome.tabs.create({ url: 'chrome://extensions/shortcuts' });
 });
+
+// ---- Templates: a card each, saved as you type ------------------------------
+
+const list = document.getElementById('templateList');
+const addButton = document.getElementById('addTemplate');
+
+function addCard({ name = '', when = '', text = '' } = {}) {
+  const card = document.createElement('div');
+  card.className = 'template';
+  const top = document.createElement('div');
+  top.className = 'row';
+  const nameInput = Object.assign(document.createElement('input'), { className: 'name-input', value: name, placeholder: 'Name it, like Research share', maxLength: 40 });
+  nameInput.setAttribute('aria-label', 'Template name');
+  const remove = Object.assign(document.createElement('button'), { type: 'button', textContent: 'Remove' });
+  top.append(nameInput, remove);
+  const whenLabel = Object.assign(document.createElement('span'), { className: 'sub', textContent: 'Use when' });
+  const whenInput = Object.assign(document.createElement('input'), { value: when, placeholder: 'A prospect asks to see accounts', maxLength: 300 });
+  whenInput.setAttribute('aria-label', 'Use when');
+  const textLabel = Object.assign(document.createElement('span'), { className: 'sub', textContent: 'Message' });
+  const textInput = Object.assign(document.createElement('textarea'), { value: text, placeholder: 'Hi [first name],\n\nI ran some research for [their company]. These 3 stood out: …' });
+  textInput.setAttribute('aria-label', 'Template message');
+  card.append(top, whenLabel, whenInput, textLabel, textInput);
+  remove.setAttribute('aria-label', `Remove template ${name || ''}`.trim());
+  nameInput.addEventListener('input', () => remove.setAttribute('aria-label', `Remove template ${nameInput.value.trim()}`.trim()));
+  remove.addEventListener('click', () => {
+    card.remove();
+    saveTemplates();
+    addButton.focus();
+  });
+  list.append(card);
+  return nameInput;
+}
+
+let templateTimer = 0;
+function saveTemplates() {
+  clearTimeout(templateTimer);
+  templateTimer = 0;
+  queue = queue.then(async () => {
+    const templates = [...list.querySelectorAll('.template')].map((card) => {
+      const [name, when] = card.querySelectorAll('input');
+      return { name: name.value.trim(), when: when.value.trim(), text: card.querySelector('textarea').value.trim() };
+    });
+    // A half-written card is kept as typed; the panel shows only finished ones.
+    const kept = templates.filter((t) => t.name || t.when || t.text);
+    try {
+      if (kept.length) await chrome.storage.local.set({ templates: kept });
+      else await chrome.storage.local.remove('templates');
+      show('Saved');
+    } catch (err) {
+      show(`Could not save: ${err.message}`);
+    }
+  });
+}
+list.addEventListener('input', () => {
+  clearTimeout(templateTimer);
+  templateTimer = setTimeout(saveTemplates, 500);
+});
+list.addEventListener('focusout', () => {
+  if (templateTimer) saveTemplates();
+});
+addButton.addEventListener('click', () => addCard().focus());

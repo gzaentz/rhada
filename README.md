@@ -77,8 +77,8 @@ stop. Ready on Reply and Learn from my edits work in Gmail only.
 a name, when to use it, and the message itself. The panel's Template menu
 then offers three ways to use them. **Auto** (the default) sends your
 templates with each request, and Rhada writes in one only when the email is
-the situation its "Use when" describes; it never reshapes a draft you already wrote unless
-you ask. Pick a template by name to write with it at once, with any files you
+the situation its "Use when" describes. A draft you already wrote keeps its
+own structure: Auto sends no templates then, so pick one by name to reshape it. Pick a template by name to write with it at once, with any files you
 attached and anything you typed. **No template** leaves them out. Rhada fills
 the structure with facts from the conversation, your files and the page,
 never the template's own example names or numbers, and later changes keep to
@@ -184,7 +184,7 @@ edit. Its text is `CONTRACT` in `src/prompt.js`.
 - Kept edits are stored next to the key, readable only by the extension, and
   never leave this computer except inside a request. **Forget them** in Options
   removes them.
-- Templates are stored next to the key. On Auto they go inside every request;
+- Templates are stored next to the key. On Auto they go inside every request that starts without a draft;
   a picked one goes only with that request and the changes after it.
 - Files you add go only inside your requests, to the same zero-retention
   endpoints. A PDF is read by the model's own provider: Rhada asks OpenRouter

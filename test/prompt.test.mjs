@@ -114,6 +114,7 @@ test('saved templates go as a list to pick from, with when to use each, unless o
   const first = (context) => buildMessages(settings, { thread: [], draft: '', ...context })[1].content;
   assert.match(first({}), /<templates>\n<template name="Outbound" use_when="Someone cold-pitches me">\nHey \[first name\], some advice\.\n<\/template>\n<\/templates>\n\n<draft>/);
   assert.doesNotMatch(first({ templateMode: 'none' }), /<templates>/);
+  assert.doesNotMatch(first({ draft: 'Hi Dana, I will send the link.' }), /<templates>/, 'a draft keeps its own structure');
   const chosen = first({ attachments: [{ name: 'Outbound', kind: 'template', text: 'Hey' }] });
   assert.doesNotMatch(chosen, /<templates>/);
   assert.match(chosen, /<template name="Outbound" chosen="yes">/);

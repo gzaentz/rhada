@@ -1,0 +1,37 @@
+[
+  {
+    "name": "after a call, ready to buy",
+    "today": "2026-11-25",
+    "subject": "Re: Call today",
+    "thread": [
+      { "from": "Sam Lee <sam@example.com>", "text": "Thanks for the call today. We'd like to start with the monthly plan. What are the next steps?" }
+    ],
+    "template": "Post-call next steps",
+    "has": ["example.com/pricing"],
+    "blanks": false
+  },
+  {
+    "name": "personal email, no template fits",
+    "thread": [
+      { "from": "Alex <alex@example.com>", "text": "Are we still on for dinner Friday?" }
+    ],
+    "template": "none",
+    "lacks": ["pricing"]
+  },
+  {
+    "name": "Template set to None",
+    "templateMode": "none",
+    "thread": [
+      { "from": "Sam Lee <sam@example.com>", "text": "Thanks for the call today. What are the next steps?" }
+    ],
+    "template": "none"
+  },
+  {
+    "name": "an offer that has ended is not mentioned",
+    "today": "2026-12-02",
+    "thread": [
+      { "from": "Sam Lee <sam@example.com>", "text": "Any discount if we sign up now?" }
+    ],
+    "lacks": ["Black Friday"]
+  }
+]

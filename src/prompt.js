@@ -28,9 +28,9 @@ In <thread>, a <message> marked writer="yes" is one the writer sent.
 
 <attachment> holds a file the writer added for context, and images or PDFs that follow a message are theirs too. Use the facts in them where the instruction asks, or where the email needs them.
 
-<templates>, when present, lists message structures the writer saved, each with use_when: the situation it is for. Then your reply always starts with one line naming your choice: "Template: " and the exact name of the one whose use_when describes the email you are writing, or "Template: none" if none does. Choose by the situation, even when the draft is empty or the thread is short. Then write the email, in the chosen structure. Never reshape a draft the writer already wrote to fit one unless an instruction asks: then choose none. A <template chosen="yes"> was picked by the writer: there is no <templates> list then. Always write in its structure, and keep to it for later instructions unless they say otherwise.
+<templates>, when present, lists message structures the writer saved, each with use_when: the situation it is for. Then the first line of your reply, with nothing before it, names your choice: "Template: " and the exact name of the one whose use_when describes the email you are writing, or "Template: none" if none does. Choose by the situation, even when the draft is empty or the thread is short. Then write the email, in the chosen structure. When the writer already wrote a draft, keep its structure and choose none, unless an instruction asks for a template. A <template chosen="yes"> was picked by the writer: there is no <templates> list then. Always write in its structure, and keep to it for later instructions unless they say otherwise.
 
-Writing in a structure means the same parts in the same order, about the same length and tone, filled with facts from the thread, the page, the attachments, the instruction and <facts>, never with the template's own example names, companies or numbers. Where it needs a fact you were not given, write [what is needed].
+Writing in a structure means the same parts in the same order, about the same length and tone, filled with facts from the thread, the page, the attachments, the instruction and <facts>, never with the template's own example names, companies or numbers. A template's own [bracketed] notes say what goes there: replace each with its content, and drop one marked "if any" when nothing fits. Never copy them. Where it needs a fact you were not given, write [what is needed].
 
 <facts>, when present, are facts the writer saved, such as links, prices, plans and codes. Use one wherever the email needs it instead of a [bracket], but only where it clearly fits what the email says.
 
@@ -44,18 +44,39 @@ export function autoTemplates(settings, context) {
   return context.templateMode === 'none' || chosen ? [] : normalizeTemplates(settings.templates);
 }
 
-// The reply's first line names the template the model picked. It is taken off
-// before the writer sees the text. null: not enough has arrived to tell.
-const MARK = 'Template: ';
+// The reply's first line names the template the model picked. It comes off,
+// with any remark the model wrote before it, before the writer sees the text.
+// null: not enough has arrived to tell.
+const LINE = /^[ \t]*Template:[ \t]*([^\n]*)\n/m;
+const HOLD = 600;
 export function splitTemplateLine(head, names) {
-  const start = head.replace(/^\s+/, '');
-  if (!start) return null;
-  if (!MARK.startsWith(start.slice(0, MARK.length))) return { used: '', rest: head };
-  const end = start.indexOf('\n');
-  if (end < 0) return start.length > MARK.length + 60 ? { used: '', rest: head } : null;
-  if (!start.startsWith(MARK)) return { used: '', rest: head };
-  const name = start.slice(MARK.length, end).trim().toLowerCase();
-  return { used: names.find((n) => n.toLowerCase() === name) ?? '', rest: start.slice(end + 1).replace(/^\s+/, '') };
+  const found = LINE.exec(head);
+  if (!found) return head.length > HOLD ? { used: '', rest: head } : null;
+  const name = found[1].trim().toLowerCase();
+  return { used: names.find((n) => n.toLowerCase() === name) ?? '', rest: head.slice(found.index + found[0].length).replace(/^\s+/, '') };
+}
+
+export function templateLine(names) {
+  let head = names.length ? '' : null;
+  const reader = {
+    used: '',
+    held: () => Boolean(head),
+    push(piece) {
+      if (head === null) return piece;
+      head += piece;
+      const split = splitTemplateLine(head, names);
+      if (!split) return '';
+      head = null;
+      reader.used = split.used;
+      return split.rest;
+    },
+    flush() {
+      const rest = head ?? '';
+      head = null;
+      return rest;
+    },
+  };
+  return reader;
 }
 
 // When the writer sent the thread's latest message, an empty reply is a follow-up.

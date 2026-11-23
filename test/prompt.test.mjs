@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { THREAD_CHARS, buildMessages, splitTemplateLine } from '../src/prompt.js';
+import { THREAD_CHARS, buildMessages, splitTemplateLine, templateLine } from '../src/prompt.js';
 
 const SETTINGS = { about: '', principles: '', rules: '', defaultInstruction: 'Polish this draft.', replyInstruction: 'Suggest a reply.' };
 
@@ -119,15 +119,35 @@ test('saved templates go as a list to pick from, with when to use each, unless o
   assert.match(chosen, /<template name="Outbound" chosen="yes">/);
 });
 
-test('Auto: the first line naming the picked template comes off, and only then', () => {
+test('Auto: the line naming the picked template comes off, with any remark before it', () => {
   const names = ['Post-call next steps', 'Batch delivered'];
   assert.equal(splitTemplateLine('Templ', names), null, 'too early to tell');
   assert.equal(splitTemplateLine('Template: Post-call', names), null);
+  assert.equal(splitTemplateLine('Hey Dana,', names), null, 'a line may still follow a remark');
   assert.deepEqual(splitTemplateLine('Template: post-call next steps\n\nHey Dana,', names), { used: 'Post-call next steps', rest: 'Hey Dana,' });
-  assert.deepEqual(splitTemplateLine('Hey Dana,', names), { used: '', rest: 'Hey Dana,' });
-  assert.deepEqual(splitTemplateLine('Te\nst', names), { used: '', rest: 'Te\nst' });
   assert.deepEqual(splitTemplateLine('Template: Unknown\nHi', names), { used: '', rest: 'Hi' });
   assert.deepEqual(splitTemplateLine('Template: none\n\nHi Sam,', names), { used: '', rest: 'Hi Sam,' });
+  assert.deepEqual(
+    splitTemplateLine("I can't confirm Friday from here.\n\nTemplate: none\n\nHi Alex,", names),
+    { used: '', rest: 'Hi Alex,' },
+  );
+  const long = `Hi Sam,\n\n${'x'.repeat(700)}`;
+  assert.deepEqual(splitTemplateLine(long, names), { used: '', rest: long }, 'a reply with no line is shown once it is long');
+});
+
+test('Auto: the streamed reply is held until its template line is known', () => {
+  const line = templateLine(['Batch delivered']);
+  assert.equal(line.push('Temp'), '');
+  assert.equal(line.held(), true);
+  assert.equal(line.push('late: Batch delivered\n\nHi'), 'Hi');
+  assert.equal(line.push(' Sam'), ' Sam');
+  assert.equal(line.used, 'Batch delivered');
+  const cut = templateLine(['Batch delivered']);
+  assert.equal(cut.push('Template: Batch'), '');
+  assert.equal(cut.flush(), 'Template: Batch', 'a reply that ends early is shown as it came');
+  const off = templateLine([]);
+  assert.equal(off.push('Template: x'), 'Template: x', 'nothing is held without templates');
+  assert.equal(off.held(), false);
 });
 
 test('saved facts go to the model with the writer\'s settings', () => {

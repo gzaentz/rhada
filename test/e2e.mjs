@@ -525,7 +525,8 @@ try {
     await page.locator('#check.bad', { hasText: 'muse-spark' }).waitFor();
     await page.getByRole('button', { name: 'Restore the default model' }).click();
     await problem.waitFor({ state: 'detached' });
-    assert.equal(await page.locator('#check').innerText(), '');
+    // Restoring checks the model again; wait for that check to finish clean.
+    await page.waitForFunction(() => document.querySelector('#check').innerText === '');
     assert.equal(await label('Model').inputValue(), 'anthropic/claude-haiku-5.5');
     assert.equal(await page.getByRole('button', { name: 'Restore the default model' }).isVisible(), false);
     // Emptied, a field shows its default again.

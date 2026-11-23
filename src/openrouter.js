@@ -33,6 +33,24 @@ async function request(path, { apiKey, ...init } = {}) {
   throw new OpenRouterError(response.status, body?.error?.message || response.statusText);
 }
 
+// The body of one edit request, as the extension sends it. `only` names the
+// zero-retention endpoints allowed; `needed` is what the messages need read.
+export function editRequest({ model, messages, only, needed = [] }) {
+  return {
+    model,
+    max_tokens: 8000,
+    // Only endpoints that keep nothing once they answer. OpenRouter
+    // fails the request rather than fall back to one that keeps data.
+    provider: { zdr: true, data_collection: 'deny', only },
+    // Models that reason before answering do it briefly: edits should feel instant.
+    reasoning: { effort: 'low' },
+    // A PDF is read by the model itself, on the same endpoint. Left to
+    // OpenRouter, it could go to an outside reader (Mistral OCR) first.
+    ...(needed.includes('file') && { plugins: [{ id: 'file-parser', pdf: { engine: 'native' } }] }),
+    messages,
+  };
+}
+
 // Streams one chat completion. Resolves to { finish, usage }: the finish reason
 // ("stop" when the model finished on its own) and the token and cost counts
 // OpenRouter sends on the last chunk. onText gets each piece of the answer.

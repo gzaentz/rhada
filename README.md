@@ -249,6 +249,22 @@ npm run icons   # assets/icon.svg → extension/icons/
 `SHOTS=<folder> npm test` also saves a screenshot of each state the tests
 reach. The two images above come from it.
 
+### Check template picks with your own emails
+
+`npm run eval` sends example emails through the real prompt and model, with
+your templates and Facts from `extension/templates.local.json`, and checks
+each reply: the template Auto picked, text it must or must not contain, and
+`[blanks]` left open. Copy `eval.example.json` to `eval.local.json` (ignored by
+git) and write your own cases; `today` sets the date, for offers that end.
+
+```bash
+OPENROUTER_API_KEY=... npm run eval -- --runs 3
+```
+
+Each case costs about $0.0004 per run on the default model. It uses the same
+zero-retention endpoints as the extension and stops at `--max-cost` (default
+$0.50). Run it after changing the prompt or a template.
+
 After a build, press the reload arrow on the extension's card in
 `chrome://extensions` and reload Gmail.
 

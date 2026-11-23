@@ -1,14 +1,15 @@
 {
   "name": "rhada",
   "private": true,
-  "version": "0.13.3",
+  "version": "0.13.4",
   "description": "Edits the Gmail draft you are writing, in place.",
   "license": "MIT",
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
     "test": "node build.mjs && node --test test/openrouter.test.mjs test/edits.test.mjs test/prompt.test.mjs test/lessons.test.mjs test/files.test.mjs test/settings.test.mjs && node test/e2e.mjs",
-    "icons": "node icons.mjs"
+    "icons": "node icons.mjs",
+    "eval": "node scripts/eval.mjs"
   },
   "devDependencies": {
     "esbuild": "^0.28.2",

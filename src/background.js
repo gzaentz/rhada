@@ -1,7 +1,7 @@
 import { EDITS_KEPT, EDITS_KEY, EDITS_SENT, fromLocalFile, loadEdits, loadSettings, normalizeTemplates } from './settings.js';
-import { autoTemplates, buildMessages, inputsNeeded, splitTemplateLine } from './prompt.js';
+import { autoTemplates, buildMessages, inputsNeeded, templateLine } from './prompt.js';
 import { cleanLessons, distillMessages, lesson } from './edits.js';
-import { NetworkError, OpenRouterError, checkKey, costOf, endpointsFor, isAllowed, keepNothing, modelExists, modelInputs, streamChat, zdrList } from './openrouter.js';
+import { NetworkError, OpenRouterError, checkKey, costOf, editRequest, endpointsFor, isAllowed, keepNothing, modelExists, modelInputs, streamChat, zdrList } from './openrouter.js';
 
 // The API key stays out of reach of scripts running inside web pages.
 chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' });
@@ -151,10 +151,9 @@ chrome.runtime.onConnect.addListener((port) => {
       // whatever the OpenRouter account allows. No such endpoint: no request.
       let text = '';
       // On Auto, the first line may name the template picked: held back until it is known.
-      const names = autoTemplates(settings, context).map((t) => t.name);
-      let head = names.length ? '' : null;
-      let used = '';
+      const line = templateLine(autoTemplates(settings, context).map((t) => t.name));
       const show = (piece) => {
+        if (!piece) return;
         text += piece;
         post({ type: 'delta', text: piece });
       };
@@ -164,28 +163,8 @@ chrome.runtime.onConnect.addListener((port) => {
         return streamChat({
           apiKey: settings.openRouterKey,
           signal: AbortSignal.any([cancel.signal, AbortSignal.timeout(120_000)]),
-          body: {
-            model: settings.model,
-            max_tokens: 8000,
-            // Only endpoints that keep nothing once they answer. OpenRouter
-            // fails the request rather than fall back to one that keeps data.
-            provider: { zdr: true, data_collection: 'deny', only },
-            // Models that reason before answering do it briefly: edits should feel instant.
-            reasoning: { effort: 'low' },
-            // A PDF is read by the model itself, on the same endpoint. Left to
-            // OpenRouter, it could go to an outside reader (Mistral OCR) first.
-            ...(needed.includes('file') && { plugins: [{ id: 'file-parser', pdf: { engine: 'native' } }] }),
-            messages,
-          },
-          onText(piece) {
-            if (head === null) return show(piece);
-            head += piece;
-            const split = splitTemplateLine(head, names);
-            if (!split) return;
-            head = null;
-            used = split.used;
-            if (split.rest) show(split.rest);
-          },
+          body: editRequest({ model: settings.model, messages, only, needed }),
+          onText: (piece) => show(line.push(piece)),
           // Chrome stops an idle worker after 30 s. A message on the port while
           // the model is still thinking keeps this one awake.
           onWait: () => post({ type: 'wait' }),
@@ -198,7 +177,7 @@ chrome.runtime.onConnect.addListener((port) => {
       // A connection that drops before any text came back is tried once more
       // after a second: a brief network blip should not end the edit.
       const result = await attempt().catch(async (err) => {
-        if (!(err instanceof NetworkError) || text || head || cancel.signal.aborted) throw err;
+        if (!(err instanceof NetworkError) || text || line.held() || cancel.signal.aborted) throw err;
         await new Promise((resolve) => setTimeout(resolve, 1000));
         return attempt();
       });
@@ -207,8 +186,8 @@ chrome.runtime.onConnect.addListener((port) => {
         return;
       }
       const { finish, usage } = result;
-      if (head) show(head);
-      const meta = { ms: Date.now() - started, cost: costOf(usage), ...(used && { template: used }) };
+      show(line.flush());
+      const meta = { ms: Date.now() - started, cost: costOf(usage), ...(line.used && { template: line.used }) };
       if (finish === 'stop') post({ type: 'done', text: text.trim(), meta });
       else if (finish === 'content_filter') post({ type: 'error', message: 'The model declined to edit this draft.' });
       // Never offer half an email as the result.

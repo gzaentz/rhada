@@ -89,6 +89,13 @@ To load many at once, save them as `extension/templates.local.json`, a list of
 names are added; a template you already have keeps your edits. The file is
 kept out of git.
 
+On Auto, the Template menu shows which one the latest version used, such as
+"Auto: Research share", so you can switch from there.
+
+**Facts to reuse.** In Options, list the links, prices, plans and codes you
+send often. Rhada fills an email's blanks with them where they fit, instead of
+leaving [brackets] for you.
+
 **Attach for context.** Paste a screenshot into the box, drop files on the
 panel, or click the paperclip. Images, PDFs, Word (.docx), Excel (.xlsx) and
 text files such as .csv work, up to 6 at a time. They go with your next

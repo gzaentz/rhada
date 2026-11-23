@@ -1,5 +1,5 @@
 import { EDITS_KEPT, EDITS_KEY, EDITS_SENT, addTemplates, loadEdits, loadSettings, normalizeTemplates } from './settings.js';
-import { buildMessages, inputsNeeded } from './prompt.js';
+import { autoTemplates, buildMessages, inputsNeeded, splitTemplateLine } from './prompt.js';
 import { cleanLessons, distillMessages, lesson } from './edits.js';
 import { NetworkError, OpenRouterError, checkKey, costOf, endpointsFor, isAllowed, keepNothing, modelExists, modelInputs, streamChat, zdrList } from './openrouter.js';
 
@@ -151,6 +151,14 @@ chrome.runtime.onConnect.addListener((port) => {
       // Named one by one, so nothing goes to an endpoint that keeps data,
       // whatever the OpenRouter account allows. No such endpoint: no request.
       let text = '';
+      // On Auto, the first line may name the template picked: held back until it is known.
+      const names = autoTemplates(settings, context).map((t) => t.name);
+      let head = names.length ? '' : null;
+      let used = '';
+      const show = (piece) => {
+        text += piece;
+        post({ type: 'delta', text: piece });
+      };
       const attempt = async () => {
         const { only, endpoints } = await allowedFor(settings.model);
         if (!only.length) return null;
@@ -171,8 +179,13 @@ chrome.runtime.onConnect.addListener((port) => {
             messages,
           },
           onText(piece) {
-            text += piece;
-            post({ type: 'delta', text: piece });
+            if (head === null) return show(piece);
+            head += piece;
+            const split = splitTemplateLine(head, names);
+            if (!split) return;
+            head = null;
+            used = split.used;
+            if (split.rest) show(split.rest);
           },
           // Chrome stops an idle worker after 30 s. A message on the port while
           // the model is still thinking keeps this one awake.
@@ -186,7 +199,7 @@ chrome.runtime.onConnect.addListener((port) => {
       // A connection that drops before any text came back is tried once more
       // after a second: a brief network blip should not end the edit.
       const result = await attempt().catch(async (err) => {
-        if (!(err instanceof NetworkError) || text || cancel.signal.aborted) throw err;
+        if (!(err instanceof NetworkError) || text || head || cancel.signal.aborted) throw err;
         await new Promise((resolve) => setTimeout(resolve, 1000));
         return attempt();
       });
@@ -195,7 +208,8 @@ chrome.runtime.onConnect.addListener((port) => {
         return;
       }
       const { finish, usage } = result;
-      const meta = { ms: Date.now() - started, cost: costOf(usage) };
+      if (head) show(head);
+      const meta = { ms: Date.now() - started, cost: costOf(usage), ...(used && { template: used }) };
       if (finish === 'stop') post({ type: 'done', text: text.trim(), meta });
       else if (finish === 'content_filter') post({ type: 'error', message: 'The model declined to edit this draft.' });
       // Never offer half an email as the result.

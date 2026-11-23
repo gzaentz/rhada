@@ -340,7 +340,7 @@ try {
     // An answer to a [blank] goes in its place.
     if (/<to_fill>/.test(asked) && /\$40/.test(asked)) return answer(SUGGESTED.replace('[price per seat]', '$40'));
     if (/elsewhere/.test(asked)) return route.fulfill({ contentType: 'text/event-stream', body: sse(SHORTER, 'stop', 'Example Cloud') }).catch(() => {});
-    const reply = /Write my reply/.test(asked) ? SUGGESTED : /Decline politely/.test(asked) ? DECLINED : /two options/i.test(asked) ? OPTIONS_REPLY : /the steps/.test(asked) ? STEPS : /\bPS\b/.test(asked) ? WITH_PS : /shorter/.test(asked) ? SHORTER : POLISHED;
+    const reply = /Reply to them/.test(asked) ? `Template: Research share\n\n${SUGGESTED}` : /Write my reply/.test(asked) ? SUGGESTED : /Decline politely/.test(asked) ? DECLINED : /two options/i.test(asked) ? OPTIONS_REPLY : /the steps/.test(asked) ? STEPS : /\bPS\b/.test(asked) ? WITH_PS : /shorter/.test(asked) ? SHORTER : POLISHED;
     return answer(reply);
   });
 
@@ -1633,6 +1633,8 @@ try {
     const options = await context.newPage();
     await options.setViewportSize({ width: 1440, height: 900 });
     await options.goto(`chrome-extension://${extensionId}/options.html`);
+    await options.getByLabel('Facts to reuse').fill('Book a call: https://cal.example.com/sam');
+    await waitFor(async () => (await worker.evaluate(() => chrome.storage.local.get('facts'))).facts === 'Book a call: https://cal.example.com/sam', 'the facts to save');
     await options.getByRole('button', { name: 'Add template' }).click();
     await options.getByLabel('Template name').fill('Research share');
     await options.getByLabel('Use when').fill('They replied with interest');
@@ -1667,7 +1669,10 @@ try {
     await page.locator('[data-draft-editor] textarea').fill('Reply to them');
     await page.keyboard.press('Enter');
     await waitFor(() => calls.length > asked, 'the auto request');
+    assert.match(calls.at(-1).body.messages[0].content, /<facts>\nBook a call: https:\/\/cal\.example\.com\/sam\n<\/facts>/);
     await page.getByRole('button', { name: 'Replace draft' }).waitFor();
+    assert.equal(await page.getByRole('option', { name: 'Auto: Research share' }).count(), 1, 'the menu names the template Auto used');
+    assert.doesNotMatch(await page.locator('[data-draft-editor]').evaluate((h) => h.shadowRoot.textContent), /Template: Research/, 'the marker line is never shown');
     assert.match(calls.at(-1).prompt, /<templates>\n<template name="Research share" use_when="They replied with interest">\nHi \[first name\],[\s\S]*<template name="Fellow names" use_when="not said">/);
     await page.keyboard.press('Escape');
     await page.close();
@@ -1700,7 +1705,7 @@ try {
     await chosen.getByRole('combobox', { name: 'Template' }).selectOption({ label: 'No template' });
     await chosen.getByRole('button', { name: 'Read this page' }).click();
     await chosen.keyboard.press('Escape');
-    await worker.evaluate(() => chrome.storage.local.remove(['templates', 'pageSites']));
+    await worker.evaluate(() => chrome.storage.local.remove(['templates', 'pageSites', 'facts']));
     await chosen.close();
   });
 

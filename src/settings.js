@@ -17,6 +17,8 @@ export const DEFAULTS = {
   rules: 'Plain English. Short sentences. Friendly and direct. No filler, no hype.',
   // What their edits have taught, updated after each changed email they send. Editable.
   lessons: '',
+  // Links, prices, plans and codes the writer reuses, to fill an email's blanks.
+  facts: '',
   // Message structures to write with: [{ name, when, text }]. Older versions
   // kept one text with a "# Name" line before each.
   templates: [],

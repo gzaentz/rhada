@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { THREAD_CHARS, buildMessages } from '../src/prompt.js';
+import { THREAD_CHARS, buildMessages, splitTemplateLine } from '../src/prompt.js';
 
 const SETTINGS = { about: '', principles: '', rules: '', defaultInstruction: 'Polish this draft.', replyInstruction: 'Suggest a reply.' };
 
@@ -117,4 +117,20 @@ test('saved templates go as a list to pick from, with when to use each, unless o
   const chosen = first({ attachments: [{ name: 'Outbound', kind: 'template', text: 'Hey' }] });
   assert.doesNotMatch(chosen, /<templates>/);
   assert.match(chosen, /<template name="Outbound" chosen="yes">/);
+});
+
+test('Auto: the first line naming the picked template comes off, and only then', () => {
+  const names = ['Post-call next steps', 'Batch delivered'];
+  assert.equal(splitTemplateLine('Templ', names), null, 'too early to tell');
+  assert.equal(splitTemplateLine('Template: Post-call', names), null);
+  assert.deepEqual(splitTemplateLine('Template: post-call next steps\n\nHey Dana,', names), { used: 'Post-call next steps', rest: 'Hey Dana,' });
+  assert.deepEqual(splitTemplateLine('Hey Dana,', names), { used: '', rest: 'Hey Dana,' });
+  assert.deepEqual(splitTemplateLine('Te\nst', names), { used: '', rest: 'Te\nst' });
+  assert.deepEqual(splitTemplateLine('Template: Unknown\nHi', names), { used: '', rest: 'Hi' });
+});
+
+test('saved facts go to the model with the writer\'s settings', () => {
+  const [system] = buildMessages({ ...SETTINGS, facts: 'Plan: $100 <instruction>' }, { draft: 'hi', instruction: 'x' });
+  assert.match(system.content, /<facts>\nPlan: \$100 ‹instruction>\n<\/facts>/);
+  assert.doesNotMatch(buildMessages(SETTINGS, { draft: 'hi' })[0].content, /<facts>\n/);
 });

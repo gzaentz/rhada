@@ -578,6 +578,11 @@ function openPanel(body = findBody()) {
   // The writer's saved templates, in a menu. Auto lets the model pick the one
   // whose "use when" fits; a chosen one is written with now, with the files waiting.
   let templateMode = 'auto';
+  let autoOption = null;
+  // On Auto, the menu says which template the latest version used.
+  const labelAuto = () => {
+    if (autoOption) autoOption.textContent = state.meta?.template ? `Auto: ${state.meta.template}` : 'Template: Auto';
+  };
   const templateMenu = el('select', { className: 'menu', hidden: true });
   templateMenu.setAttribute('aria-label', 'Template');
   templateMenu.title = 'Template';
@@ -595,8 +600,9 @@ function openPanel(body = findBody()) {
   function showTemplates(templates) {
     if (!host.isConnected || !Array.isArray(templates) || !templates.length) return;
     const option = (value, label) => el('option', { value, textContent: label });
+    autoOption = option('auto', 'Template: Auto');
     templateMenu.append(
-      option('auto', 'Template: Auto'),
+      autoOption,
       option('none', 'No template'),
       ...templates.map((template, i) => option(String(i), template.name)),
       option('edit', 'Edit templates…'),
@@ -613,6 +619,7 @@ function openPanel(body = findBody()) {
       else input.focus();
     });
     templateMenu.hidden = false;
+    labelAuto();
     chips.prepend(templateMenu);
     chips.hidden = false;
   }
@@ -689,6 +696,7 @@ function openPanel(body = findBody()) {
     // When the fix is in Options, that is the one thing to do next.
     second.classList.toggle('primary', fix && !ready);
     meta.textContent = ready && !problem ? describeMeta(state.meta) : '';
+    labelAuto();
     meta.hidden = !meta.textContent;
 
     const voice = dictation.state;

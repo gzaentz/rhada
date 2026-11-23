@@ -148,22 +148,26 @@ export async function docxText(data) {
   return text;
 }
 
+// Some writers name every tag with a prefix, <x:row> for <row>. Read either.
+const bare = (xml) => xml?.replace(/<(\/?)[A-Za-z][\w.-]*:/g, '<$1') ?? null;
+
 // Each sheet of a workbook, by name, as rows of tab-separated cells. Numbers
 // are kept as Excel stores them: a date reads as its day count.
 export async function xlsxText(data) {
   const entries = unzip(data);
-  const book = await part(entries, 'xl/workbook.xml');
+  const sheetPart = async (name) => bare(await part(entries, name));
+  const book = await sheetPart('xl/workbook.xml');
   if (book === null) throw new FileProblem('That file is not an Excel workbook.');
-  const rels = (await part(entries, 'xl/_rels/workbook.xml.rels')) ?? '';
+  const rels = (await sheetPart('xl/_rels/workbook.xml.rels')) ?? '';
   const targets = new Map([...rels.matchAll(/<Relationship\b[^>]*>/g)].map(([tag]) => [attr(tag, 'Id'), attr(tag, 'Target')]));
-  const shared = [...((await part(entries, 'xl/sharedStrings.xml')) ?? '').matchAll(/<si>([\s\S]*?)<\/si>/g)].map(([, si]) =>
+  const shared = [...((await sheetPart('xl/sharedStrings.xml')) ?? '').matchAll(/<si>([\s\S]*?)<\/si>/g)].map(([, si]) =>
     [...si.matchAll(/<t\b[^>]*>([^<]*)<\/t>/g)].map(([, t]) => unescape(t)).join(''),
   );
   const sheets = [];
   for (const [tag] of book.matchAll(/<sheet\b[^>]*>/g)) {
     const target = targets.get(attr(tag, 'r:id')) ?? '';
     const path = target.startsWith('/') ? target.slice(1) : `xl/${target}`;
-    const xml = await part(entries, path);
+    const xml = await sheetPart(path);
     if (xml === null) continue;
     const rows = [];
     for (const [, row] of xml.matchAll(/<row\b[^>]*?(?:\/>|>([\s\S]*?)<\/row>)/g)) {

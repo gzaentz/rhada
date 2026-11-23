@@ -28,6 +28,10 @@ test('an Excel workbook reads sheet by sheet, cells in their columns', async () 
   assert.match(dates, /^Sheet: Dates & notes\nRenewal\t\d+\nTRUE$/);
 });
 
+test('a workbook whose tags carry a prefix, <x:row>, as some writers make them, reads the same', async () => {
+  assert.equal(await xlsxText(await fixture('prices-prefixed.xlsx')), await xlsxText(await fixture('prices.xlsx')));
+});
+
 test('attachments: Word and Excel become text; old formats and damage say what to do', async () => {
   assert.equal((await readAttachment(await asFile('plan.docx'))).kind, 'text');
   const sheet = await readAttachment(await asFile('prices.xlsx'));

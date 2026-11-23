@@ -73,6 +73,13 @@ conversation you are answering, goes with each request, and an empty box gets
 a suggested reply. Rhada remembers the choice for that site; press it again to
 stop. Ready on Reply and Learn from my edits work in Gmail only.
 
+**Templates.** In Options, under Templates, write the message structures you
+reuse, each starting with a line like `# Research share`. Each one becomes a
+button in the panel. Attach a sheet, turn on Read this page if you need it,
+and click the button: Rhada writes in that structure, with facts from the
+conversation, your files and anything you type, never the template's own
+example names or numbers. Later changes keep to it unless you say otherwise.
+
 **Attach for context.** Paste a screenshot into the box, drop files on the
 panel, or click the paperclip. Images, PDFs, Word (.docx), Excel (.xlsx) and
 text files such as .csv work, up to 6 at a time. They go with your next
@@ -159,6 +166,8 @@ edit. Its text is `CONTRACT` in `src/prompt.js`.
 - Kept edits are stored next to the key, readable only by the extension, and
   never leave this computer except inside a request. **Forget them** in Options
   removes them.
+- A template goes only with the request whose button you click, and the
+  changes after it.
 - Files you add go only inside your requests, to the same zero-retention
   endpoints. A PDF is read by the model's own provider: Rhada asks OpenRouter
   for native reading, so it never goes to an outside PDF reader. If your model

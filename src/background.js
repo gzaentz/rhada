@@ -1,4 +1,4 @@
-import { EDITS_KEPT, EDITS_KEY, EDITS_SENT, loadEdits, loadSettings } from './settings.js';
+import { EDITS_KEPT, EDITS_KEY, EDITS_SENT, loadEdits, loadSettings, parseTemplates } from './settings.js';
 import { buildMessages, inputsNeeded } from './prompt.js';
 import { cleanLessons, distillMessages, lesson } from './edits.js';
 import { NetworkError, OpenRouterError, checkKey, costOf, endpointsFor, isAllowed, keepNothing, modelExists, modelInputs, streamChat, zdrList } from './openrouter.js';
@@ -261,6 +261,13 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return true;
   }
   // Sites where the writer turned on reading the page, by hostname.
+  if (msg?.type === 'templates') {
+    loadSettings().then(
+      (settings) => sendResponse(parseTemplates(settings.templates)),
+      () => sendResponse([]),
+    );
+    return true;
+  }
   if (msg?.type === 'page-site') {
     chrome.storage.local.get('pageSites').then(
       ({ pageSites = {} }) => sendResponse(Boolean(pageSites[msg.site])),

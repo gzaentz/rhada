@@ -1619,6 +1619,40 @@ try {
     await again.close();
   });
 
+  await test('a saved template is a button that writes with it, the attached sheet and the conversation, and stays for later changes', async () => {
+    await worker.evaluate(() => chrome.storage.local.set({ templates: 'Notes first, ignored\n# Research share\nHi [first name],\n\nThese 3 stood out:\n[Company] - [why it fits]\n\n# Fellow names\n[Name], found your 3 fellow [Name]s.' }));
+    const page = await site('#reply');
+    await toggle(page);
+    const button = page.getByRole('button', { name: 'Research share' });
+    await button.waitFor();
+    assert.equal(await page.getByRole('button', { name: 'Fellow names' }).isVisible(), true);
+    await page.getByRole('button', { name: 'Read this page' }).click();
+    await page.getByRole('button', { name: 'Replace draft' }).waitFor();
+    await page.locator('input[type="file"]').setInputFiles([{ name: 'prices.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: readFileSync(fixture('prices.xlsx')) }]);
+    await waitFor(async () => (await page.locator('.file:not(.reading)').count()) === 1, 'the sheet to be read');
+    const asked = calls.length;
+    await button.click();
+    await waitFor(() => calls.length > asked, 'the template request');
+    await page.getByRole('button', { name: 'Replace draft' }).waitFor();
+    await shot(page, 'template');
+    const latest = () => textOf(calls.at(-1).body.messages.at(-1).content);
+    const all = () => calls.at(-1).body.messages.map((m) => textOf(m.content)).join('\n');
+    const prompt = latest();
+    assert.match(prompt, /<attachment name="prices\.xlsx">\nSheet: Pricing/);
+    assert.match(prompt, /<template name="Research share">\nHi \[first name\],\n\nThese 3 stood out:\n\[Company\] - \[why it fits\]\n<\/template>\n\n(<to_fill>[\s\S]*<\/to_fill>\n\n)?<instruction>\nWrite it with my "Research share" template\.\n<\/instruction>/);
+    assert.match(calls.at(-1).prompt, /<on_page>\nDana Lee/);
+    assert.equal(await page.locator('.file').count(), 0, 'the sheet went with it');
+    // A later change still has the template and the sheet in the conversation.
+    await page.locator('[data-draft-editor] textarea').fill('Shorter');
+    await page.keyboard.press('Enter');
+    await waitFor(() => latest().includes('Shorter'), 'the change');
+    assert.match(all(), /<template name="Research share">[\s\S]*<instruction>\nShorter\n<\/instruction>$/);
+    await page.getByRole('button', { name: 'Read this page' }).click();
+    await page.keyboard.press('Escape');
+    await worker.evaluate(() => chrome.storage.local.remove(['templates', 'pageSites']));
+    await page.close();
+  });
+
   await test('where Rhada cannot run, the shortcut goes to Gmail instead of opening Options', async () => {
     await worker.evaluate(() => chrome.storage.local.set({ openRouterKey: 'sk-or-test-fake' }));
     const gmail = await open('fresh');

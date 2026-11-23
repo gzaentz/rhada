@@ -17,6 +17,8 @@ export const DEFAULTS = {
   rules: 'Plain English. Short sentences. Friendly and direct. No filler, no hype.',
   // What their edits have taught, updated after each changed email they send. Editable.
   lessons: '',
+  // Message structures to write with, each starting with a "# Name" line.
+  templates: '',
   // The edit that runs when the panel opens on a draft with text.
   defaultInstruction:
     'Polish this draft: fix typos and grammar, tighten it, and keep my meaning and voice.',
@@ -36,6 +38,20 @@ export const FLAGS = ['replyOnOpen', 'learnFromEdits'];
 export const EDITS_KEY = 'edits';
 export const EDITS_KEPT = 20;
 export const EDITS_SENT = 5;
+
+// "# Name" lines start each template; text before the first is ignored.
+export function parseTemplates(text = '') {
+  const templates = [];
+  for (const line of text.replace(/\r\n?/g, '\n').split('\n')) {
+    const heading = line.match(/^#\s+(.+?)\s*$/);
+    if (heading) templates.push({ name: heading[1].slice(0, 40), lines: [] });
+    else templates.at(-1)?.lines.push(line);
+  }
+  return templates
+    .map(({ name, lines }) => ({ name, text: lines.join('\n').trim() }))
+    .filter((template) => template.text)
+    .slice(0, 12);
+}
 
 export async function loadSettings() {
   const stored = await chrome.storage.local.get(Object.keys(DEFAULTS));

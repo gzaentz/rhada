@@ -570,6 +570,27 @@ function openPanel(body = findBody()) {
     });
     chips.append(chip);
   }
+  // The writer's saved templates, one button each. The files waiting go with it.
+  async function useTemplate({ name, text }) {
+    dictation.cancel();
+    if (state.pending.some((entry) => !entry.attachment)) {
+      await Promise.all(state.pending.map((entry) => entry.ready));
+      if (!host.isConnected) return;
+    }
+    const typed = input.value.trim();
+    input.value = '';
+    run(typed || `Write it with my "${name}" template.`, [...takeFiles(), { name, kind: 'template', text }]);
+    input.focus();
+  }
+  function showTemplates(templates) {
+    if (!host.isConnected || !Array.isArray(templates) || !templates.length) return;
+    for (const template of templates) {
+      const chip = el('button', { type: 'button', className: 'chip', textContent: template.name, title: 'Write it with this template' });
+      chip.addEventListener('click', () => useTemplate(template));
+      chips.append(chip);
+    }
+    chips.hidden = false;
+  }
 
   const top = el('div', { className: 'top' });
   top.append(mark, el('slot', { name: 'input' }), attachButton, micButton, optionsButton, closeButton, picker);
@@ -1018,6 +1039,7 @@ function openPanel(body = findBody()) {
   // A draft with text gets the first pass. An empty reply gets a suggested one.
   else if (!resumed && !carried && (draft.text || context.thread.length)) run('');
   else render();
+  chrome.runtime.sendMessage({ type: 'templates' }).then(showTemplates, () => {});
   if (site) {
     chrome.runtime.sendMessage({ type: 'page-site', site }).then(
       (on) => on && host.isConnected && setPage(true),

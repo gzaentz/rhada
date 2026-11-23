@@ -53,6 +53,14 @@ export function normalizeTemplates(saved) {
     .slice(0, 12);
 }
 
+// Templates from a file join the saved ones. A saved one with the same name
+// stays as the writer last edited it.
+export function addTemplates(saved, incoming) {
+  const have = normalizeTemplates(saved);
+  const names = new Set(have.map((t) => t.name));
+  return normalizeTemplates([...have, ...normalizeTemplates(incoming).filter((t) => !names.has(t.name))]);
+}
+
 // "# Name" lines start each template; text before the first is ignored.
 function parseTemplates(text = '') {
   const templates = [];

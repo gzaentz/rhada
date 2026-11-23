@@ -84,6 +84,11 @@ the structure with facts from the conversation, your files and the page,
 never the template's own example names or numbers, and later changes keep to
 it unless you say otherwise.
 
+To load many at once, save them as `extension/templates.local.json`, a list of
+`{"name", "when", "text"}`, and reload Rhada in `chrome://extensions`. New
+names are added; a template you already have keeps your edits. The file is
+kept out of git.
+
 **Attach for context.** Paste a screenshot into the box, drop files on the
 panel, or click the paperclip. Images, PDFs, Word (.docx), Excel (.xlsx) and
 text files such as .csv work, up to 6 at a time. They go with your next

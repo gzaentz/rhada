@@ -1,4 +1,4 @@
-import { EDITS_KEPT, EDITS_KEY, EDITS_SENT, loadEdits, loadSettings, normalizeTemplates } from './settings.js';
+import { EDITS_KEPT, EDITS_KEY, EDITS_SENT, addTemplates, loadEdits, loadSettings, normalizeTemplates } from './settings.js';
 import { buildMessages, inputsNeeded } from './prompt.js';
 import { cleanLessons, distillMessages, lesson } from './edits.js';
 import { NetworkError, OpenRouterError, checkKey, costOf, endpointsFor, isAllowed, keepNothing, modelExists, modelInputs, streamChat, zdrList } from './openrouter.js';
@@ -104,6 +104,17 @@ async function shortcut() {
 // One port per edit. Closing the port cancels the request. A request with
 // `prefetch` comes from a reply box that just opened (Ready on Reply): it runs
 // only when that setting is on and a key is saved, and says so with `start`.
+// A templates.local.json beside the manifest (kept out of git) is added when
+// Rhada is installed or reloaded, once per version of the file, so a template
+// removed in Options stays removed.
+chrome.runtime.onInstalled.addListener(async () => {
+  const file = await fetch(chrome.runtime.getURL('templates.local.json')).then((r) => (r.ok ? r.text() : ''), () => '');
+  const incoming = file && JSON.parse(file);
+  const { templates, templatesFile } = await chrome.storage.local.get(['templates', 'templatesFile']);
+  if (!Array.isArray(incoming) || templatesFile === file) return;
+  await chrome.storage.local.set({ templates: addTemplates(templates, incoming), templatesFile: file });
+});
+
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== 'edit') return;
   const cancel = new AbortController();

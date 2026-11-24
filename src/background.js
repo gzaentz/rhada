@@ -273,15 +273,16 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
   if (msg?.type === 'page-site') {
     chrome.storage.local.get('pageSites').then(
-      ({ pageSites = {} }) => sendResponse(Boolean(pageSites[msg.site])),
+      ({ pageSites = {} }) => sendResponse(pageSites[msg.site] !== false),
       () => sendResponse(false),
     );
     return true;
   }
   if (msg?.type === 'set-page-site') {
     chrome.storage.local.get('pageSites').then(({ pageSites = {} }) => {
-      if (msg.on) pageSites[msg.site] = true;
-      else delete pageSites[msg.site];
+      // On is the default, so only a site turned off is kept.
+      if (msg.on) delete pageSites[msg.site];
+      else pageSites[msg.site] = false;
       return chrome.storage.local.set({ pageSites });
     });
     return false;

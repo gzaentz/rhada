@@ -1603,23 +1603,19 @@ try {
     await toggle(page);
     await page.getByRole('alert').waitFor();
     assert.equal(await page.getByRole('alert').innerText(), 'Click into a text box.');
-    await page.locator('#plain').click();
+    // The panel sits over the top of this page, so the box is reached by Tab.
+    await page.locator('#plain').focus();
     await page.getByRole('button', { name: 'Replace draft' }).waitFor();
     assert.equal(await page.locator('[data-draft-editor]').count(), 1);
     await page.keyboard.press('Escape');
     await page.close();
   });
 
-  await test('on any site, Read this page sends the conversation around the box, and is remembered for the site', async () => {
+  await test('on any site, Read this page is on by default, and turning it off is remembered for the site', async () => {
     const page = await site('#reply');
-    const asked = calls.length;
     await toggle(page);
     const chip = page.getByRole('button', { name: 'Read this page' });
-    await chip.waitFor();
-    assert.equal(await chip.getAttribute('aria-pressed'), 'false');
-    await page.waitForTimeout(300);
-    assert.equal(calls.length, asked, 'an empty box with the page off asks for nothing');
-    await chip.click();
+    // An empty box gets a suggested reply to the conversation around it at once.
     await page.getByRole('button', { name: 'Replace draft' }).waitFor();
     assert.equal(await chip.getAttribute('aria-pressed'), 'true');
     await shot(page, 'read-page');
@@ -1627,17 +1623,24 @@ try {
     assert.match(prompt, /<on_page>\nDana Lee 9:12 AM\n\nHi! We are a team of 20[\s\S]*before Friday\.\n<\/on_page>/);
     assert.match(prompt, /<draft>\n\n<\/draft>/);
     assert.doesNotMatch(prompt, /hey dana/, 'only the part of the page around the box');
-    await waitFor(async () => (await worker.evaluate(() => chrome.storage.local.get('pageSites'))).pageSites?.['example.net'], 'the site to be remembered');
+    await chip.click();
+    await waitFor(async () => (await worker.evaluate(() => chrome.storage.local.get('pageSites'))).pageSites?.['example.net'] === false, 'the site to be turned off');
+    await page.keyboard.press('Escape');
     await page.close();
 
-    // Opened again on the site, it reads the page and suggests a reply at once.
+    // Opened again on the site, it stays off and asks for nothing on an empty box.
     const again = await site('#reply');
+    const asked = calls.length;
     await toggle(again);
+    const off = again.getByRole('button', { name: 'Read this page' });
+    await off.waitFor();
+    await again.waitForTimeout(300);
+    assert.equal(await off.getAttribute('aria-pressed'), 'false');
+    assert.equal(calls.length, asked, 'an empty box with the page off asks for nothing');
+    await off.click();
     await again.getByRole('button', { name: 'Replace draft' }).waitFor();
-    assert.equal(await again.getByRole('button', { name: 'Read this page' }).getAttribute('aria-pressed'), 'true');
     assert.match(calls.at(-1).prompt, /<on_page>/);
-    await again.getByRole('button', { name: 'Read this page' }).click();
-    await waitFor(async () => !(await worker.evaluate(() => chrome.storage.local.get('pageSites'))).pageSites?.['example.net'], 'the site to be forgotten');
+    await waitFor(async () => !('example.net' in ((await worker.evaluate(() => chrome.storage.local.get('pageSites'))).pageSites ?? {})), 'the site to be back on the default');
     await again.keyboard.press('Escape');
     await again.close();
   });
@@ -1693,7 +1696,6 @@ try {
 
     const chosen = await site('#reply');
     await toggle(chosen);
-    await chosen.getByRole('button', { name: 'Read this page' }).click();
     await chosen.getByRole('button', { name: 'Replace draft' }).waitFor();
     await chosen.locator('input[type="file"]').setInputFiles([{ name: 'prices.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: readFileSync(fixture('prices.xlsx')) }]);
     await waitFor(async () => (await chosen.locator('.file:not(.reading)').count()) === 1, 'the sheet to be read');

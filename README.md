@@ -38,8 +38,7 @@ Gmail tabs that were already open work too: the first press adds the panel.
 3. Press **Enter** on an empty box to replace the draft. **Cmd+Z** in the draft
    undoes it. **Esc** closes the panel and changes nothing.
    The panel opens wide and short at the top of the window, your request on
-   the left and the email on the right, so the thread stays readable. It
-   opens at the bottom instead when the top would cover the box. Drag the panel by its top or bottom bar to see the thread behind it; the
+   the left and the email on the right, so the thread stays readable. Drag the panel by its top or bottom bar to see the thread behind it; the
    next panel on that page opens in the same place. Web addresses in the
    result become links in the draft.
 
@@ -71,12 +70,11 @@ nothing.
 **Any site.** Click into a text box anywhere, such as a LinkedIn message, a
 CRM reply box or a form, and press the shortcut. Rhada polishes what is there,
 or waits for an instruction if the box is empty, and **Enter** writes the
-result in as if you typed it, so **Cmd+Z** undoes it. Outside Gmail it sees
-only that box, the site's name and the tab's title, until you press **Read
-this page** in the panel. Then the text on screen around the box, usually the
-conversation you are answering, goes with each request, and an empty box gets
-a suggested reply. Rhada remembers the choice for that site; press it again to
-stop. Ready on Reply and Learn from my edits work in Gmail only.
+result in as if you typed it, so **Cmd+Z** undoes it. **Read this page** is
+on by default: the text on screen around the box, usually the conversation you
+are answering, goes with each request, and an empty box gets a suggested
+reply. Press it to turn it off, and Rhada keeps it off for that site; then it
+sees only the box, the site's name and the tab's title. Ready on Reply and Learn from my edits work in Gmail only.
 
 **Templates.** In Options, under Templates, click **Add template** and give it
 a name, when to use it, and the message itself. The panel's Template menu
@@ -181,9 +179,9 @@ edit. Its text is `CONTRACT` in `src/prompt.js`.
 - Outside Gmail, Rhada can read a site only after you press the shortcut or
   the toolbar button there, and only in that tab (Chrome's "active tab"
   permission). It reads the text box with the cursor, the site name and the
-  tab title. With **Read this page** pressed for a site, it also sends the
-  text shown around the box, at most 20,000 characters, read when you run a
-  request. The sites you turned it on for are stored on this computer only.
+  tab title. Unless you turn **Read this page** off for a site, it also sends
+  the text shown around the box, at most 20,000 characters, read when you run
+  a request. The sites you turned it off for are stored on this computer only.
 - With **Ready on Reply** on, the thread goes to OpenRouter as soon as you open
   a reply, before you press the shortcut.
 - Kept edits are stored next to the key, readable only by the extension, and

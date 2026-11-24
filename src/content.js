@@ -563,11 +563,11 @@ function openPanel(body = findBody()) {
   const mark = icon(HORNS, true);
   mark.setAttribute('class', 'mark');
 
-  // Outside Gmail the writer can let the text around the box go along, site by site.
+  // Outside Gmail the text around the box goes along, unless the writer turned it off for the site.
   const site = !IN_GMAIL && body ? context.page.site : '';
   let pageOn = false;
   const pageChip = el('button', { type: 'button', className: 'chip', textContent: 'Read this page', hidden: !site });
-  pageChip.title = `Sends the text around this box with each request. Remembered for ${site}.`;
+  pageChip.title = `Sends the text around this box with each request. Turning it off is remembered for ${site}.`;
   pageChip.setAttribute('aria-pressed', 'false');
   const setPage = (on) => {
     pageOn = on;
@@ -1101,17 +1101,9 @@ function openPanel(body = findBody()) {
 
   for (const type of KEY_EVENTS) window.addEventListener(type, onKey, true);
   document.documentElement.append(host);
-  // It opens at the top of the window, out of the way of the thread, or at the
-  // bottom when it would cover the box being edited. Off Gmail, a panel still
-  // waiting for a box opens at the bottom too: the box could be anywhere.
+  // It opens at the top of the window, out of the way of the thread, and stays
+  // there: only the writer moves it.
   if (spot) place(spot);
-  else {
-    const panelBox = host.getBoundingClientRect();
-    const field = body?.getBoundingClientRect();
-    const covers = field ? field.top < panelBox.bottom && field.bottom > panelBox.top : !IN_GMAIL;
-    // Held by its bottom edge, so it grows upward when the result arrives.
-    if (covers) Object.assign(host.style, { top: 'auto', bottom: '8px' });
-  }
   panel = {
     close,
     onDraft: Boolean(body),

@@ -186,7 +186,7 @@ const SHORTER = `Hi Dana,
 - Sam`;
 const WITH_PS = `${SHORTER}
 
-PS: the trial is free.`;
+PS: the trial is free: https://example.com/trial.`;
 const SUGGESTED = `Hi Dana,
 
 Happy to help. For 20 seats it is [price per seat] a month.
@@ -639,7 +639,7 @@ try {
 
     await page.keyboard.type('add a PS about the free trial');
     await page.keyboard.press('Enter');
-    await page.locator('.out', { hasText: 'PS: the trial is free.' }).waitFor();
+    await page.locator('.out', { hasText: 'PS: the trial is free:' }).waitFor();
     await page.getByRole('button', { name: 'Replace draft' }).waitFor();
     const third = calls.at(-1).body.messages;
     assert.deepEqual(third.map((m) => m.role), ['system', 'user', 'assistant', 'user', 'assistant', 'user']);
@@ -649,11 +649,23 @@ try {
     assert.equal(await page.locator('[data-draft-editor] textarea').getAttribute('placeholder'), 'Ask for another change');
     await shot(page, 'panel-third-version');
 
+    // The bottom bar drags the panel; a click on the result keeps Enter in the box.
+    const where = () => page.locator('[data-draft-editor]').evaluate((el) => el.getBoundingClientRect().toJSON());
+    const before = await where();
+    const grip = await page.locator('[data-draft-editor] .hint').boundingBox();
+    await page.mouse.move(grip.x + 4, grip.y + 4);
+    await page.mouse.down();
+    await page.mouse.move(grip.x - 116, grip.y + 64, { steps: 4 });
+    await page.mouse.up();
+    const after = await where();
+    assert.deepEqual([Math.round(after.left - before.left), Math.round(after.top - before.top)], [-120, 60]);
+    await page.locator('.out div', { hasText: 'PS:' }).click({ position: { x: 4, y: 4 } });
     await page.keyboard.press('Enter');
     await page.locator('[data-draft-editor]').waitFor({ state: 'detached' });
     assert.deepEqual(await page.evaluate(() => window.__keys), [], 'the Enter that replaces never reaches the page');
+    assert.equal(await page.locator('[g_editable="true"] a[href="https://example.com/trial"]').innerText(), 'https://example.com/trial', 'a bare address is a link, without the full stop');
     const text = await draftText(page);
-    assert.match(text, /^Hi Dana,\n\n20 seats is \$40\/seat: our pricing page\.\n\n- Sam\n\nPS: the trial is free\.\n\nSam Rivera/);
+    assert.match(text, /^Hi Dana,\n\n20 seats is \$40\/seat: our pricing page\.\n\n- Sam\n\nPS: the trial is free: https:\/\/example\.com\/trial\.\n\nSam Rivera/);
     assert.doesNotMatch(text, /thx|lmk/);
     assert.equal(await tailHtml(page), signature, 'the signature markup is untouched');
     assert.equal(await page.locator('[g_editable="true"] a[href="https://example.com/pricing"]').innerText(), 'our pricing page');
@@ -831,7 +843,7 @@ try {
     assert.equal(calls.length, before + 1, 'not paid for twice');
     await page.keyboard.type('add a PS');
     await page.keyboard.press('Enter');
-    await page.locator('.out', { hasText: 'PS: the trial is free.' }).waitFor();
+    await page.locator('.out', { hasText: 'PS: the trial is free:' }).waitFor();
     const contents = calls.at(-1).body.messages.map((m) => m.content);
     assert.ok(contents.includes(SUGGESTED) && contents.includes(SHORTER), 'the next change sees both earlier versions');
     await page.keyboard.press('Escape');

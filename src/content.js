@@ -34,6 +34,9 @@ const CSS = `
   .out, button { transition: none; }
 }
 .top { display: flex; align-items: flex-start; gap: 4px; padding: 13px 10px 12px 16px; }
+/* The top and bottom bars move the panel. */
+.top, .foot { cursor: grab; touch-action: none; }
+.card.moving, .card.moving * { cursor: grabbing; user-select: none; }
 .mark { flex: none; margin: 4px 10px 0 0; color: var(--bright); }
 slot { display: block; flex: 1; min-width: 0; padding-top: 1px; }
 .files { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 16px 12px 42px; }
@@ -272,6 +275,8 @@ function startJob(build) {
 }
 
 let panel = null;
+// Where the writer dragged the panel, kept for the next one on this page.
+let spot = null;
 
 // What the panel last wrote into each draft. Opening it again on that text
 // carries on the same conversation instead of polishing its own work, and
@@ -1041,8 +1046,45 @@ function openPanel(body = findBody()) {
     }, 1500);
   });
 
+  // A click on the panel that selects nothing keeps typing, and Enter, in the box.
+  card.addEventListener('click', (e) => {
+    const target = e.composedPath()[0];
+    if (target instanceof Element && target.closest('button, a, select, textarea, mark')) return;
+    if (!String(getSelection()).trim()) input.focus({ preventScroll: true });
+  });
+
+  // Dragging the top or bottom bar moves the panel, inside the window.
+  const place = ({ left, top }) => {
+    const box = host.getBoundingClientRect();
+    host.style.left = `${Math.min(Math.max(0, left), innerWidth - box.width)}px`;
+    host.style.top = `${Math.min(Math.max(0, top), innerHeight - 48)}px`;
+    host.style.transform = 'none';
+  };
+  for (const bar of [top, foot]) {
+    bar.addEventListener('pointerdown', (e) => {
+      const target = e.composedPath()[0];
+      if (e.button !== 0 || (target instanceof Element && target.closest('button, a, select, textarea, input'))) return;
+      e.preventDefault();
+      const box = host.getBoundingClientRect();
+      const from = { x: e.clientX - box.left, y: e.clientY - box.top };
+      bar.setPointerCapture(e.pointerId);
+      card.classList.add('moving');
+      const move = (m) => place({ left: m.clientX - from.x, top: m.clientY - from.y });
+      const stop = () => {
+        bar.removeEventListener('pointermove', move);
+        card.classList.remove('moving');
+        const now = host.getBoundingClientRect();
+        spot = { left: now.left, top: now.top };
+        input.focus({ preventScroll: true });
+      };
+      bar.addEventListener('pointermove', move);
+      bar.addEventListener('lostpointercapture', stop, { once: true });
+    });
+  }
+
   for (const type of KEY_EVENTS) window.addEventListener(type, onKey, true);
   document.documentElement.append(host);
+  if (spot) place(spot);
   panel = {
     close,
     onDraft: Boolean(body),

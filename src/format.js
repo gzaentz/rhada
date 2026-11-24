@@ -83,7 +83,9 @@ export function htmlToText(root, { rich = true } = {}) {
 
 const BULLET = /^\s*[-*•]\s+(.*)$/;
 const NUMBER = /^\s*\d+[.)]\s+(.*)$/;
-const INLINE = /\[([^\]]+)\]\(((?:https?:\/\/|mailto:)[^\s)]+)\)|\*\*([^*]+)\*\*/g;
+// [label](url), **bold**, or a bare web address, which becomes a link to itself
+// without the punctuation that ends a sentence.
+const INLINE = /\[([^\]]+)\]\(((?:https?:\/\/|mailto:)[^\s)]+)\)|\*\*([^*]+)\*\*|(https?:\/\/[^\s<>()[\]"]*[^\s<>()[\]".,;:!?'])/g;
 
 // One line of text into `parent`: plain text, links and bold.
 function inline(parent, text) {
@@ -93,6 +95,11 @@ function inline(parent, text) {
     if (match[2]) {
       const link = inline(document.createElement('a'), match[1]);
       link.setAttribute('href', match[2]);
+      parent.append(link);
+    } else if (match[4]) {
+      const link = document.createElement('a');
+      link.setAttribute('href', match[4]);
+      link.textContent = match[4];
       parent.append(link);
     } else {
       parent.append(inline(document.createElement('b'), match[3]));

@@ -37,6 +37,9 @@ Gmail tabs that were already open work too: the first press adds the panel.
    one" work.
 3. Press **Enter** on an empty box to replace the draft. **Cmd+Z** in the draft
    undoes it. **Esc** closes the panel and changes nothing.
+   Drag the panel by its top or bottom bar to see the thread behind it; the
+   next panel on that page opens in the same place. Web addresses in the
+   result become links in the draft.
 
 Reading a thread with no reply open, press the shortcut there to get a
 suggestion. Click **Reply** and press it again: the panel moves into the reply

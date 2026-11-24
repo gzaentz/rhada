@@ -259,10 +259,16 @@ your templates and Facts from `extension/templates.local.json`, and checks
 each reply: the template Auto picked, text it must or must not contain, and
 `[blanks]` left open. Copy `eval.example.json` to `eval.local.json` (ignored by
 git) and write your own cases; `today` sets the date, for offers that end.
+`attachments` adds files as the text Rhada reads from them. Every reply is also
+checked for saying something is attached when the case did not ask for that.
 
 ```bash
 npm run eval -- --runs 3
 ```
+
+`--mine` also sends your last 5 saved edits and your lessons from Chrome, as
+the extension does with **Learn from my edits** on. `--show` prints every
+reply, not only the failed ones.
 
 It uses the key saved in Rhada's Options in Chrome (or `OPENROUTER_API_KEY`).
 Each case costs about $0.0004 per run on the default model. It uses the same

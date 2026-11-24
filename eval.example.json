@@ -4,25 +4,38 @@
     "today": "2026-11-25",
     "subject": "Re: Call today",
     "thread": [
-      { "from": "Sam Lee <sam@example.com>", "text": "Thanks for the call today. We'd like to start with the monthly plan. What are the next steps?" }
+      {
+        "from": "Sam Lee <sam@example.com>",
+        "text": "Thanks for the call today. We'd like to start with the monthly plan. What are the next steps?"
+      }
     ],
     "template": "Post-call next steps",
-    "has": ["example.com/pricing"],
+    "has": [
+      "example.com/pricing"
+    ],
     "blanks": false
   },
   {
     "name": "personal email, no template fits",
     "thread": [
-      { "from": "Alex <alex@example.com>", "text": "Are we still on for dinner Friday?" }
+      {
+        "from": "Alex <alex@example.com>",
+        "text": "Are we still on for dinner Friday?"
+      }
     ],
     "template": "none",
-    "lacks": ["pricing"]
+    "lacks": [
+      "pricing"
+    ]
   },
   {
     "name": "Template set to None",
     "templateMode": "none",
     "thread": [
-      { "from": "Sam Lee <sam@example.com>", "text": "Thanks for the call today. What are the next steps?" }
+      {
+        "from": "Sam Lee <sam@example.com>",
+        "text": "Thanks for the call today. What are the next steps?"
+      }
     ],
     "template": "none"
   },
@@ -30,8 +43,37 @@
     "name": "an offer that has ended is not mentioned",
     "today": "2026-12-02",
     "thread": [
-      { "from": "Sam Lee <sam@example.com>", "text": "Any discount if we sign up now?" }
+      {
+        "from": "Sam Lee <sam@example.com>",
+        "text": "Any discount if we sign up now?"
+      }
     ],
-    "lacks": ["Black Friday"]
+    "lacks": [
+      "Black Friday"
+    ]
+  },
+  {
+    "name": "a sheet added in the panel is not called an attachment",
+    "subject": "Re: accounts",
+    "thread": [
+      {
+        "from": "Sam Lee <sam@example.com>",
+        "text": "Sure, send them over."
+      }
+    ],
+    "instruction": "send these 3",
+    "attachments": [
+      {
+        "name": "accounts.xlsx",
+        "text": "Sheet: Accounts\nCompany | Signal\nAcme Freight | Opened a Dallas hub"
+      }
+    ],
+    "has": [
+      "Acme Freight"
+    ],
+    "lacks": [
+      "attach",
+      "spreadsheet"
+    ]
   }
 ]

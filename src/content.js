@@ -15,8 +15,8 @@ const FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, 
 
 // Black and white. The one bright thing is the next action.
 const CSS = `
-:host { all: initial; position: fixed; top: 12vh; left: 50%; transform: translateX(-50%);
-  z-index: 2147483647; width: min(620px, calc(100vw - 32px)); }
+:host { all: initial; position: fixed; top: 8px; left: 50%; transform: translateX(-50%);
+  z-index: 2147483647; width: min(1000px, calc(100vw - 32px)); }
 .card { --fg: #ececec; --bright: #fff; --muted: #8c8c8c; --line: #1a1a1a; --line-2: #333; --danger: #d9774b;
   position: relative; display: flex; flex-direction: column; max-height: 76vh; overflow: hidden;
   color-scheme: dark; color: var(--fg); background: #000; border: 1px solid #242424; border-radius: 14px;
@@ -32,6 +32,17 @@ const CSS = `
 @media (prefers-reduced-motion: reduce) {
   .card, .card.loading::before, .icon.listening { animation: none; }
   .out, button { transition: none; }
+}
+.side, .result { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.result { flex: 1 1 auto; }
+/* With a result, the panel is short and wide: asking on the left, the email on the right. */
+.card.split { flex-direction: row; max-height: min(340px, 70vh); }
+.card.split .side { flex: 0 0 min(380px, 40%); overflow-y: auto; border-right: 1px solid var(--line); scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+.card.split .out { border-top: 0; }
+@media (max-width: 760px) {
+  .card.split { flex-direction: column; max-height: 76vh; }
+  .card.split .side { flex: none; overflow: visible; border-right: 0; }
+  .card.split .out { border-top: 1px solid var(--line); }
 }
 .top { display: flex; align-items: flex-start; gap: 4px; padding: 13px 10px 12px 16px; }
 /* The top and bottom bars move the panel. */
@@ -637,7 +648,11 @@ function openPanel(body = findBody()) {
   card.setAttribute('role', 'dialog');
   card.setAttribute('aria-modal', 'true');
   card.setAttribute('aria-label', 'Edit draft');
-  card.append(top, files, chips, notice, out, note, foot);
+  const side = el('div', { className: 'side' });
+  side.append(top, files, chips, notice, note);
+  const result = el('div', { className: 'result' });
+  result.append(out, foot);
+  card.append(side, result);
   const shadow = host.attachShadow({ mode: 'open' });
   shadow.append(el('style', { textContent: CSS }), card);
 
@@ -683,6 +698,7 @@ function openPanel(body = findBody()) {
     const locked = !body || draft.blocked || state.writeFailed || state.draftChanged;
     const fix = problem?.code === 'settings';
     card.classList.toggle('loading', status === 'loading');
+    card.classList.toggle('split', status === 'loading' || ready || out.hasChildNodes());
     out.setAttribute('aria-busy', String(status === 'loading'));
 
     const message =
@@ -1058,6 +1074,7 @@ function openPanel(body = findBody()) {
     const box = host.getBoundingClientRect();
     host.style.left = `${Math.min(Math.max(0, left), innerWidth - box.width)}px`;
     host.style.top = `${Math.min(Math.max(0, top), innerHeight - 48)}px`;
+    host.style.bottom = 'auto';
     host.style.transform = 'none';
   };
   for (const bar of [top, foot]) {
@@ -1084,7 +1101,17 @@ function openPanel(body = findBody()) {
 
   for (const type of KEY_EVENTS) window.addEventListener(type, onKey, true);
   document.documentElement.append(host);
+  // It opens at the top of the window, out of the way of the thread, or at the
+  // bottom when it would cover the box being edited. Off Gmail, a panel still
+  // waiting for a box opens at the bottom too: the box could be anywhere.
   if (spot) place(spot);
+  else {
+    const panelBox = host.getBoundingClientRect();
+    const field = body?.getBoundingClientRect();
+    const covers = field ? field.top < panelBox.bottom && field.bottom > panelBox.top : !IN_GMAIL;
+    // Held by its bottom edge, so it grows upward when the result arrives.
+    if (covers) Object.assign(host.style, { top: 'auto', bottom: '8px' });
+  }
   panel = {
     close,
     onDraft: Boolean(body),

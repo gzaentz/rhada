@@ -16,7 +16,7 @@ const FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, 
 // Black and white. The one bright thing is the next action.
 const CSS = `
 :host { all: initial; position: fixed; top: 8px; left: 50%; transform: translateX(-50%);
-  z-index: 2147483647; width: min(1000px, calc(100vw - 32px)); }
+  z-index: 2147483647; width: min(1200px, calc(100vw - 32px)); }
 .card { --fg: #ececec; --bright: #fff; --muted: #8c8c8c; --line: #1a1a1a; --line-2: #333; --danger: #d9774b;
   position: relative; display: flex; flex-direction: column; max-height: 76vh; overflow: hidden;
   color-scheme: dark; color: var(--fg); background: #000; border: 1px solid #242424; border-radius: 14px;
@@ -37,7 +37,7 @@ const CSS = `
 .result { flex: 1 1 auto; }
 /* With a result, the panel is short and wide: asking on the left, the email on the right. */
 .card.split { flex-direction: row; max-height: min(340px, 70vh); }
-.card.split .side { flex: 0 0 min(380px, 40%); overflow-y: auto; border-right: 1px solid var(--line); scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+.card.split .side { flex: 0 0 min(480px, 42%); overflow-y: auto; border-right: 1px solid var(--line); scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
 .card.split .out { border-top: 0; }
 @media (max-width: 760px) {
   .card.split { flex-direction: column; max-height: 76vh; }

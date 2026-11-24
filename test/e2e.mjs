@@ -655,10 +655,10 @@ try {
     const grip = await page.locator('[data-draft-editor] .hint').boundingBox();
     await page.mouse.move(grip.x + 4, grip.y + 4);
     await page.mouse.down();
-    await page.mouse.move(grip.x - 116, grip.y + 64, { steps: 4 });
+    await page.mouse.move(grip.x - 26, grip.y + 64, { steps: 4 });
     await page.mouse.up();
     const after = await where();
-    assert.deepEqual([Math.round(after.left - before.left), Math.round(after.top - before.top)], [-120, 60]);
+    assert.deepEqual([Math.round(after.left - before.left), Math.round(after.top - before.top)], [-30, 60]);
     await page.locator('.out div', { hasText: 'PS:' }).click({ position: { x: 4, y: 4 } });
     await page.keyboard.press('Enter');
     await page.locator('[data-draft-editor]').waitFor({ state: 'detached' });

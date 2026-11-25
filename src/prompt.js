@@ -166,7 +166,7 @@ export function buildMessages(settings, context, edits = [], now = new Date()) {
   // A draft that may take a template is told so, or "keep my meaning" wins.
   const offered = autoTemplates(settings, context).length > 0;
   const polish = offered ? `${settings.defaultInstruction} ${REPLACE_DRAFT}` : settings.defaultInstruction;
-  const reply = offered ? `${settings.replyInstruction} ${IN_TEMPLATE}` : settings.replyInstruction;
+  const reply = `${settings.replyInstruction} ${offered ? IN_TEMPLATE : ANSWER_FIRST}`;
   const fallback = draft.trim() ? polish : thread.at(-1)?.mine ? FOLLOW_UP : reply;
   // An instruction that follows a version with [blanks] is told which are open.
   const open = (result = '') => [...new Set(result.match(BLANKS) ?? [])];
@@ -215,7 +215,10 @@ export const ATTACHED = 'Use what I attached.';
 export const REPLACE_DRAFT = "This draft may not be mine. Choose from <templates> by the situation, as for an empty draft. If one fits, write my reply in its structure instead of polishing: its parts, opening, ask and closing replace the draft's, and the draft gives only facts, such as names, companies and signals.";
 
 // Added to the reply request when templates are offered: "briefly" must not cut a template's parts.
-export const IN_TEMPLATE = 'If a template fits, write it in that structure with all its parts, even ones I still have to fill in.';
+export const IN_TEMPLATE = "If a template fits, write it in that structure with all its parts, even ones I still have to fill in. Choose it by what the message agrees to or asks me to do, not by a question it also asks. That question is answered in one sentence right after the greeting, and then the template goes on, even when its first line starts with the greeting: split them.";
+
+// Added to every suggested reply: a question gets its answer before anything else.
+export const ANSWER_FIRST = 'If the latest message asks me something, answer it in the first sentence after the greeting, then go on.';
 
 // A message with files: their text goes in first, then the message, then
 // images and PDFs as parts of their own. Without images or PDFs it stays text.

@@ -124,6 +124,10 @@ function check(c, used, text) {
   }
   for (const s of c.has ?? []) if (!lower.includes(s.toLowerCase())) problems.push(`missing "${s}"`);
   for (const s of c.lacks ?? []) if (lower.includes(s.toLowerCase())) problems.push(`has "${s}"`);
+  // A question in the latest message is answered in the first paragraph.
+  const paragraphs = lower.trim().split(/\n\s*\n/);
+  const opening = /^(hi|hey|hello|dear)\b[^\n.!?]{0,40},?$/.test(paragraphs[0]) ? paragraphs[1] ?? '' : paragraphs[0];
+  for (const s of c.opens ?? []) if (!opening.includes(s.toLowerCase())) problems.push(`first paragraph lacks "${s}"`);
   // A markdown link's [text](url) is not a blank.
   const blanks = text.match(/\[[^\]\n]+\](?!\()/g) ?? [];
   if (c.blanks === false && blanks.length) problems.push(`left blanks: ${blanks.join(' ')}`);

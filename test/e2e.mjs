@@ -236,9 +236,14 @@ const FIELDS_PAGE = `<!doctype html><title>Messages | Example</title>
   document.getElementById('plain').addEventListener('input', () => (inputs += 1));
   window.inputs = () => inputs;
   const editor = document.getElementById('editor');
+  // As Origami's reply box does: its own tag stripping when the HTML has
+  // simple tags, with no entity decoding, else the plain text.
   editor.addEventListener('paste', (e) => {
     e.preventDefault();
-    window.pasted = e.clipboardData.getData('text/plain');
+    const html = e.clipboardData.getData('text/html');
+    window.pasted = /<(?:a|b|strong|i|em|u|br|p)\\b/i.test(html)
+      ? html.replace(/<a [^>]*href="([^"]*)"[^>]*>(.*?)<\\/a>/gi, '[$2]($1)').replace(/<br\\s*\\/?>/gi, '\\n').replace(/<\\/p>\\s*<p[^>]*>/gi, '\\n\\n').replace(/<[^>]+>/g, '').trim()
+      : e.clipboardData.getData('text/plain');
     editor.replaceChildren(...window.pasted.split('\\n').map((line) => Object.assign(document.createElement('p'), { textContent: line })));
   });
 </script>`;
@@ -1581,13 +1586,31 @@ try {
     await page.close();
   });
 
+  await test('on any site, Enter with only a sheet attached asks for it to be used', async () => {
+    const page = await site('#plain');
+    await toggle(page);
+    await page.getByRole('button', { name: 'Replace draft' }).waitFor();
+    const before = calls.length;
+    await page.locator('input[type="file"]').setInputFiles([{ name: 'prices.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: readFileSync(fixture('prices.xlsx')) }]);
+    await page.locator('.file:not(.reading)').waitFor();
+    await page.keyboard.press('Enter');
+    await waitFor(() => calls.length > before, 'the request with the sheet');
+    const text = textOf(calls.at(-1).body.messages.at(-1).content);
+    assert.match(text, /<attachment name="prices\.xlsx">/);
+    assert.match(text, /<instruction>\nUse what I attached\.\n<\/instruction>/);
+    await page.getByRole('button', { name: 'Replace draft' }).waitFor();
+    assert.equal(await page.locator('.file').count(), 0, 'the sheet went with it');
+    await page.keyboard.press('Escape');
+    await page.close();
+  });
+
   await test('on any site, an editor gets the text as a paste, and a plain editable box with its lines', async () => {
     const page = await site('#editor');
     await toggle(page);
     await page.getByRole('button', { name: 'Replace draft' }).waitFor();
     await page.keyboard.press('Enter');
     await page.locator('[data-draft-editor]').waitFor({ state: 'detached' });
-    assert.equal(await page.evaluate(() => window.pasted), POLISHED);
+    assert.equal(await page.evaluate(() => window.pasted), POLISHED.replace(/\*\*/g, ''), 'paragraphs stay apart');
     await page.locator('#editable').click();
     await toggle(page);
     await page.getByRole('button', { name: 'Replace draft' }).waitFor();

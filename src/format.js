@@ -144,3 +144,24 @@ export function textToHtml(text) {
   box.append(textToNodes(text));
   return box.innerHTML;
 }
+
+// The usual clipboard shape for other sites' editors: a <p> per paragraph,
+// <br> between its lines, lists as lists. Editors that strip tags themselves
+// read a paragraph break, where Gmail's <div><br></div> reads as one line
+// break. A bare "&" stays bare: valid HTML, and such editors leave "&amp;" as is.
+export function textToPasteHtml(text) {
+  const box = document.createElement('div');
+  let paragraph = null;
+  for (const node of [...textToNodes(text).childNodes]) {
+    const blank = node.nodeName === 'DIV' && node.firstChild?.nodeName === 'BR';
+    if (node.nodeName !== 'DIV' || blank) {
+      paragraph = null;
+      if (!blank) box.append(node);
+      continue;
+    }
+    if (paragraph) paragraph.append(document.createElement('br'));
+    else box.append((paragraph = document.createElement('p')));
+    paragraph.append(...node.childNodes);
+  }
+  return box.innerHTML.replace(/&amp;(?=[\s<]|$)/g, '&');
+}

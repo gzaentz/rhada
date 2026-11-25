@@ -1,7 +1,7 @@
 // Any text box on any other site: a <textarea>, a text <input>, or an
 // editable element such as a chat or post editor. Gmail has its own rules in
 // gmail.js; this is the plain version for everywhere else.
-import { htmlToText, textToHtml } from './format.js';
+import { htmlToText, textToHtml, textToPasteHtml } from './format.js';
 
 const TEXT_INPUTS = new Set(['text', 'search', 'email', 'url']);
 // Formatting the light text does not carry. Replacing drops it.
@@ -73,13 +73,12 @@ export async function replaceField(field, text) {
   // Editors pick up a new selection a moment later.
   await settle();
   if (!field.isConnected) return false;
-  const html = textToHtml(text);
   const data = new DataTransfer();
   data.setData('text/plain', text);
-  data.setData('text/html', html);
+  data.setData('text/html', textToPasteHtml(text));
   // An editor that handles pasting writes it into its own model.
   if (!field.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))) return true;
-  return document.execCommand('insertHTML', false, html);
+  return document.execCommand('insertHTML', false, textToHtml(text));
 }
 
 const PAGE_MIN = 400;

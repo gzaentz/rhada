@@ -733,6 +733,9 @@ function openPanel(body = findBody()) {
     else if (status === 'loading') hint.replaceChildren('Working… · ', ...closes);
     else if (status === 'nobody') hint.replaceChildren(...closes);
     else if (problem) hint.replaceChildren(key('Enter'), ' tries again · ', ...closes);
+    // A file dragged in from Finder or Chrome's downloads leaves the keys
+    // there: a page can't take them back, so the hint says to click first.
+    else if (state.pending.length && !document.hasFocus()) hint.replaceChildren('Click here, then ', key('Enter'), ' runs it · ', ...closes);
     else if (!ready || state.pending.length) hint.replaceChildren(key('Enter'), ' runs it · ', ...closes);
     else if (locked) hint.replaceChildren(...closes);
     else hint.replaceChildren(key('Enter'), ' replaces the draft · ', ...closes);
@@ -978,12 +981,20 @@ function openPanel(body = findBody()) {
     }
   }
   const KEY_EVENTS = ['keydown', 'keypress', 'keyup'];
+  // Back in this window with files waiting, the keys go to the box again.
+  function onWindowFocus(e) {
+    if (e.target !== window || !host.isConnected) return;
+    if (e.type === 'focus' && state.pending.length) input.focus({ preventScroll: true });
+    render();
+  }
 
   function close({ refocus = true } = {}) {
     state.job?.cancel();
     state.job = null;
     dictation.cancel();
     for (const type of KEY_EVENTS) window.removeEventListener(type, onKey, true);
+    window.removeEventListener('blur', onWindowFocus);
+    window.removeEventListener('focus', onWindowFocus);
     host.remove();
     panel = null;
     if (!refocus || !body?.isConnected) return;
@@ -1100,6 +1111,8 @@ function openPanel(body = findBody()) {
   }
 
   for (const type of KEY_EVENTS) window.addEventListener(type, onKey, true);
+  window.addEventListener('blur', onWindowFocus);
+  window.addEventListener('focus', onWindowFocus);
   document.documentElement.append(host);
   // It opens at the top of the window, out of the way of the thread, and stays
   // there: only the writer moves it.

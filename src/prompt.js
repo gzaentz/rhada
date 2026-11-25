@@ -42,7 +42,12 @@ Writing in a structure means the same parts in the same order, about the same le
 // none, or already wrote a draft: that keeps its own structure.
 export function autoTemplates(settings, context) {
   const chosen = [...(context.turns ?? []), context].some((r) => (r.attachments ?? []).some((f) => f.kind === 'template'));
-  return context.templateMode === 'none' || chosen || String(context.draft ?? '').trim() ? [] : normalizeTemplates(settings.templates);
+  // A draft is kept in its own shape. The exception is a box on another site
+  // opened with nothing typed: there the text is often another tool's
+  // suggestion, such as a CRM's drafted reply, and a template that fits replaces it.
+  const typed = String((context.turns?.[0] ?? context).instruction ?? '').trim();
+  const keep = String(context.draft ?? '').trim() && (!context.page || typed);
+  return context.templateMode === 'none' || chosen || keep ? [] : normalizeTemplates(settings.templates);
 }
 
 // The reply's first line names the template the model picked. It comes off,
@@ -158,7 +163,9 @@ function systemPrompt(settings, edits, now) {
 export function buildMessages(settings, context, edits = [], now = new Date()) {
   const { thread = [], to = [], subject = '', page = null, onPage = '', draft = '', turns = [], instruction = '' } = context;
   // With no instruction, a draft with text gets the first pass and an empty one a suggested reply.
-  const fallback = draft.trim() ? settings.defaultInstruction : thread.at(-1)?.mine ? FOLLOW_UP : settings.replyInstruction;
+  // A draft that may take a template is told so, or "keep my meaning" wins.
+  const polish = autoTemplates(settings, context).length ? `${settings.defaultInstruction} ${REPLACE_DRAFT}` : settings.defaultInstruction;
+  const fallback = draft.trim() ? polish : thread.at(-1)?.mine ? FOLLOW_UP : settings.replyInstruction;
   // An instruction that follows a version with [blanks] is told which are open.
   const open = (result = '') => [...new Set(result.match(BLANKS) ?? [])];
   const requests = [...turns.map((turn) => [turn.instruction, turn.attachments]), [instruction, context.attachments]];
@@ -201,6 +208,9 @@ export function buildMessages(settings, context, edits = [], now = new Date()) {
 }
 
 export const ATTACHED = 'Use what I attached.';
+
+// Added to the polish request for a draft another tool may have written.
+export const REPLACE_DRAFT = "This draft may not be mine. Choose from <templates> by the situation, as for an empty draft. If one fits, write my reply in its structure instead of polishing: its parts, opening, ask and closing replace the draft's, and the draft gives only facts, such as names, companies and signals.";
 
 // A message with files: their text goes in first, then the message, then
 // images and PDFs as parts of their own. Without images or PDFs it stays text.

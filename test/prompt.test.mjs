@@ -115,6 +115,9 @@ test('saved templates go as a list to pick from, with when to use each, unless o
   assert.match(first({}), /<templates>\n<template name="Outbound" use_when="Someone cold-pitches me">\nHey \[first name\], some advice\.\n<\/template>\n<\/templates>\n\n<draft>/);
   assert.doesNotMatch(first({ templateMode: 'none' }), /<templates>/);
   assert.doesNotMatch(first({ draft: 'Hi Dana, I will send the link.' }), /<templates>/, 'a draft keeps its own structure');
+  const page = { site: 'crm.example', title: 'Inbox' };
+  assert.match(first({ draft: 'Hi Dana, thanks for reaching out.', page }), /<templates>/, "another tool's draft on a site can take a template");
+  assert.doesNotMatch(first({ draft: 'Hi Dana, I will send the link.', page, instruction: 'fix grammar' }), /<templates>/, 'a typed request keeps the draft');
   const chosen = first({ attachments: [{ name: 'Outbound', kind: 'template', text: 'Hey' }] });
   assert.doesNotMatch(chosen, /<templates>/);
   assert.match(chosen, /<template name="Outbound" chosen="yes">/);

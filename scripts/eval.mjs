@@ -81,6 +81,9 @@ async function run({ c, run }) {
     to: c.to ?? [],
     subject: c.subject ?? '',
     draft: c.draft ?? '',
+    // A box on another site: its page, and the text read around the box.
+    page: c.page ?? null,
+    onPage: c.onPage ?? '',
     instruction: c.instruction ?? '',
     templateMode: c.templateMode,
     // Files added in the panel, as the text Rhada reads from them.

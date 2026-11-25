@@ -164,8 +164,10 @@ export function buildMessages(settings, context, edits = [], now = new Date()) {
   const { thread = [], to = [], subject = '', page = null, onPage = '', draft = '', turns = [], instruction = '' } = context;
   // With no instruction, a draft with text gets the first pass and an empty one a suggested reply.
   // A draft that may take a template is told so, or "keep my meaning" wins.
-  const polish = autoTemplates(settings, context).length ? `${settings.defaultInstruction} ${REPLACE_DRAFT}` : settings.defaultInstruction;
-  const fallback = draft.trim() ? polish : thread.at(-1)?.mine ? FOLLOW_UP : settings.replyInstruction;
+  const offered = autoTemplates(settings, context).length > 0;
+  const polish = offered ? `${settings.defaultInstruction} ${REPLACE_DRAFT}` : settings.defaultInstruction;
+  const reply = offered ? `${settings.replyInstruction} ${IN_TEMPLATE}` : settings.replyInstruction;
+  const fallback = draft.trim() ? polish : thread.at(-1)?.mine ? FOLLOW_UP : reply;
   // An instruction that follows a version with [blanks] is told which are open.
   const open = (result = '') => [...new Set(result.match(BLANKS) ?? [])];
   const requests = [...turns.map((turn) => [turn.instruction, turn.attachments]), [instruction, context.attachments]];
@@ -211,6 +213,9 @@ export const ATTACHED = 'Use what I attached.';
 
 // Added to the polish request for a draft another tool may have written.
 export const REPLACE_DRAFT = "This draft may not be mine. Choose from <templates> by the situation, as for an empty draft. If one fits, write my reply in its structure instead of polishing: its parts, opening, ask and closing replace the draft's, and the draft gives only facts, such as names, companies and signals.";
+
+// Added to the reply request when templates are offered: "briefly" must not cut a template's parts.
+export const IN_TEMPLATE = 'If a template fits, write it in that structure with all its parts, even ones I still have to fill in.';
 
 // A message with files: their text goes in first, then the message, then
 // images and PDFs as parts of their own. Without images or PDFs it stays text.

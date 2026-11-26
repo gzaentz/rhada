@@ -32,6 +32,11 @@ test('a local file can carry facts: they fill an empty box or replace the file\'
   assert.equal(fromLocalFile({ facts: 'Call: cal.example.com/a' }, v2, v1).facts, 'Call: cal.example.com/b');
   assert.equal(fromLocalFile({ facts: 'Typed by me' }, v2, v1).facts, undefined);
   assert.deepEqual(fromLocalFile({}, JSON.stringify([{ name: 'B', text: 'b' }])), { templates: [{ name: 'B', when: '', text: 'b' }] });
+  // New lessons in the file replace learned ones; the same lessons again leave learning alone.
+  const l1 = JSON.stringify({ lessons: '- Short.' });
+  const l2 = JSON.stringify({ lessons: '- Shorter.' });
+  assert.equal(fromLocalFile({ lessons: '- Learned since.' }, l2, l1).lessons, '- Shorter.');
+  assert.equal(fromLocalFile({ lessons: '- Learned since.' }, JSON.stringify({ lessons: '- Short.', facts: 'x' }), l1).lessons, undefined);
 });
 
 test('a new version of the local file updates templates the writer left as they were', () => {

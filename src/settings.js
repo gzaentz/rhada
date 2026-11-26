@@ -71,10 +71,12 @@ export function addTemplates(saved, incoming) {
 export function fromLocalFile(saved, file, previous) {
   const read = (text) => {
     const data = text ? JSON.parse(text) : null;
-    return Array.isArray(data) ? { templates: data, facts: '' } : { templates: data?.templates ?? [], facts: String(data?.facts ?? '').trim() };
+    return Array.isArray(data)
+      ? { templates: data, facts: '', lessons: '' }
+      : { templates: data?.templates ?? [], facts: String(data?.facts ?? '').trim(), lessons: String(data?.lessons ?? '').trim() };
   };
   const now = read(file);
-  const before = previous ? read(previous) : { templates: [], facts: '' };
+  const before = previous ? read(previous) : { templates: [], facts: '', lessons: '' };
   const facts = String(saved.facts ?? '').trim();
   // A template still as the previous file wrote it takes the file's new version.
   const same = (a, b) => a && b && a.when === b.when && a.text === b.text;
@@ -87,6 +89,9 @@ export function fromLocalFile(saved, file, previous) {
   return {
     templates: addTemplates(kept, now.templates),
     ...(now.facts && (!facts || facts === before.facts) && { facts: now.facts }),
+    // Rhada rewrites lessons as it learns, so the file's lessons win only when
+    // the file brings new ones; learning then goes on from them.
+    ...(now.lessons && now.lessons !== before.lessons && { lessons: now.lessons }),
   };
 }
 

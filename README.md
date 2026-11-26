@@ -88,10 +88,12 @@ never the template's own example names or numbers, and later changes keep to
 it unless you say otherwise.
 
 To load many at once, save them as `extension/templates.local.json`, a list of
-`{"name", "when", "text"}` (or `{"templates": [...], "facts": "..."}` to
-fill Facts too), and reload Rhada in `chrome://extensions`. New names are
-added, and a template or Facts box you haven't changed since the file's last
-version takes the new one; your own edits stay. The file is kept out of git.
+`{"name", "when", "text"}` (or `{"templates": [...], "facts": "...", "lessons": "..."}` to
+fill Facts and lessons too), and reload Rhada in `chrome://extensions`. New
+names are added, and a template or Facts box you haven't changed since the
+file's last version takes the new one; your own edits stay. Lessons in the file
+replace the learned ones whenever the file brings new lessons, and learning
+goes on from there. The file is kept out of git.
 
 On Auto, the Template menu shows which one the latest version used, such as
 "Auto: Research share", so you can switch from there.

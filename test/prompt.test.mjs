@@ -160,6 +160,21 @@ test('saved facts go to the model with the writer\'s settings', () => {
   assert.doesNotMatch(buildMessages(SETTINGS, { draft: 'hi' })[0].content, /<facts>\n/);
 });
 
+test('a template already sent in the thread is asked for in new words, and only then', () => {
+  const templates = [{ name: 'Share', when: 'they want examples', text: 'Hi [name],\n\nFound these for you.\n\nCurious what you think about these three accounts.\n\nBest,' }];
+  const ask = (text) => buildMessages({ ...SETTINGS, templates }, { thread: [{ from: 'Me', text, mine: true }, { from: 'Jo', text: 'US ones please' }] }).at(-1).content;
+  assert.match(ask('Hey Jo. Curious what you think about these  three accounts.'), /I already sent the "Share" template/);
+  assert.doesNotMatch(ask('Hey Jo, found a few for you.'), /I already sent/);
+});
+
+test('a saved sign-off goes with the first request and replaces any other closing', () => {
+  const messages = buildMessages({ ...SETTINGS, signoff: 'Cheers,' }, { draft: 'hi', turns: [{ instruction: '', result: 'Hi.' }], instruction: 'shorter' });
+  const asks = messages.filter((m) => m.role === 'user').map((m) => JSON.stringify(m.content));
+  assert.match(asks[0], /End it with the sign-off \\"Cheers,\\", in place of any other/);
+  assert.doesNotMatch(asks.at(-1), /End it with/);
+  assert.doesNotMatch(JSON.stringify(buildMessages(SETTINGS, { draft: "hi" })), /End it with/);
+});
+
 test('facts whose end date has passed are left out, and the prompt says the date', () => {
   const facts = 'Book: https://cal.example.com/sam\nBlack Friday offer, until Nov 30 2026: 50 extra leads\nSpring deal ends 2026-03-01: 10% off\nCode WINTER through December 15th, 2026';
   const system = (now) => buildMessages({ ...SETTINGS, facts }, { draft: 'Hi' }, [], now)[0].content;

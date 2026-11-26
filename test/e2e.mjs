@@ -1055,7 +1055,7 @@ try {
     await page.close();
   });
 
-  await test('typing in the draft while the panel is open turns Replace off', async () => {
+  await test('typing in the draft while the panel is open keeps it once, then Replace writes over it', async () => {
     const page = await open('fresh');
     await toggle(page);
     await page.getByRole('button', { name: 'Replace draft' }).waitFor();
@@ -1067,8 +1067,9 @@ try {
     await page.getByRole('button', { name: 'Replace draft' }).click();
     await page.locator('.note', { hasText: 'The draft changed while this was open' }).waitFor();
     assert.equal(await draftHtml(page), typed, 'what was typed is kept');
-    assert.equal(await page.getByRole('button', { name: 'Replace draft' }).isDisabled(), true);
-    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: 'Replace draft' }).click();
+    await page.locator('[data-draft-editor]').waitFor({ state: 'detached' });
+    assert.notEqual(await draftHtml(page), typed, 'the second Replace writes over it');
     await page.close();
   });
 

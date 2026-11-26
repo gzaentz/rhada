@@ -6,6 +6,8 @@ export const DEFAULTS = {
   // The writer's own words, sent with every edit. All of it is editable in Options.
   // Who they are and what they write about. Optional.
   about: '',
+  // Ends every email, in place of any other closing such as a template's.
+  signoff: '',
   // What an edit must keep and what it may change.
   principles: [
     'Keep my meaning, facts, names, numbers, dates, links and commitments.',

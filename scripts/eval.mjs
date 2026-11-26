@@ -91,7 +91,7 @@ async function run({ c, run }) {
   };
   const now = c.today ? new Date(`${c.today}T12:00:00`) : new Date();
   // A case can carry past edits and the lessons drawn from them, as Learn from my edits keeps them.
-  const messages = buildMessages({ ...settings, lessons: c.lessons ?? settings.lessons }, context, c.pastEdits ?? myEdits, now);
+  const messages = buildMessages({ ...settings, ...c.settings, lessons: c.lessons ?? settings.lessons }, context, c.pastEdits ?? myEdits, now);
   const line = templateLine(autoTemplates(settings, context).map((t) => t.name));
   let text = '';
   const problems = [];

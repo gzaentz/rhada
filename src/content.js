@@ -695,7 +695,7 @@ function openPanel(body = findBody()) {
   function render() {
     const { status, problem } = state;
     const ready = status === 'done';
-    const locked = !body || draft.blocked || state.writeFailed || state.draftChanged;
+    const locked = !body || draft.blocked || state.writeFailed;
     const fix = problem?.code === 'settings';
     card.classList.toggle('loading', status === 'loading');
     card.classList.toggle('split', status === 'loading' || ready || out.hasChildNodes());
@@ -744,7 +744,7 @@ function openPanel(body = findBody()) {
     if (ready) {
       if (!body) about.push('To write it in, open a reply and click into it.');
       else if (state.writeFailed) about.push('Could not write into this draft. Copy the text instead.');
-      else if (state.draftChanged) about.push('The draft changed while this was open, so replacing is off. Copy the text, or open Rhada again on the new draft.');
+      else if (state.draftChanged) about.push('The draft changed while this was open, so it was kept. Replace again to write over it.');
       else if (draft.blocked) about.push('This draft has an image or table, so replacing is off. Copy the text instead.');
       else if (draft.lossy) about.push('Only links, bold and lists are kept. Other formatting in this draft will be lost.');
       if (BLANK.test(state.result)) about.push('Type what goes in the [brackets], or fill them in before you send.');
@@ -907,9 +907,12 @@ function openPanel(body = findBody()) {
 
   let replacing = false;
   async function replace() {
-    if (!body || draft.blocked || state.writeFailed || state.draftChanged || replacing) return;
+    if (!body || draft.blocked || state.writeFailed || replacing) return;
     const now = readBox(body);
+    // A draft that changed is kept the first time; replacing again writes over it.
     if (now.text !== draft.text || now.blocked !== draft.blocked) {
+      draft.text = now.text;
+      draft.blocked = now.blocked;
       state.draftChanged = true;
       render();
       input.focus();

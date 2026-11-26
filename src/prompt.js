@@ -50,6 +50,19 @@ export function autoTemplates(settings, context) {
   return context.templateMode === 'none' || chosen || keep ? [] : normalizeTemplates(settings.templates);
 }
 
+// The first template whose own sentences already appear in what I sent, or on
+// the page around the box. Templates with [blanks] are compared only by their fixed lines.
+function sentBefore(templates, thread, onPage) {
+  const flat = (text) => String(text).toLowerCase().replace(/\s+/g, ' ');
+  const seen = flat([...thread.filter((m) => m.mine).map((m) => m.text), onPage].join('\n'));
+  const lines = (t) => t.text.split(/(?<=[.!?])\s+|\n+/).map(flat).filter((line) => line.length >= 30 && !line.includes('['));
+  return templates.find((t) => lines(t).some((line) => seen.includes(line)))?.name ?? '';
+}
+
+// When that template fits again, its lines are said in new words.
+export const resend = (name) =>
+  `I already sent the "${name}" template earlier here. That does not change which template fits. If you choose it again, say its opening, closing and ask in new words, so no sentence repeats one I sent.`;
+
 // The reply's first line names the template the model picked. It comes off,
 // with any remark the model wrote before it, before the writer sees the text.
 // null: not enough has arrived to tell.
@@ -167,7 +180,8 @@ export function buildMessages(settings, context, edits = [], now = new Date()) {
   const offered = autoTemplates(settings, context).length > 0;
   const polish = offered ? `${settings.defaultInstruction} ${REPLACE_DRAFT}` : settings.defaultInstruction;
   const reply = `${settings.replyInstruction} ${offered ? IN_TEMPLATE : ANSWER_FIRST}`;
-  const fallback = draft.trim() ? polish : thread.at(-1)?.mine ? FOLLOW_UP : reply;
+  const repeat = offered && sentBefore(autoTemplates(settings, context), thread, onPage);
+  const fallback = draft.trim() ? polish : thread.at(-1)?.mine ? FOLLOW_UP : repeat ? `${reply} ${resend(repeat)}` : reply;
   // An instruction that follows a version with [blanks] is told which are open.
   const open = (result = '') => [...new Set(result.match(BLANKS) ?? [])];
   const requests = [...turns.map((turn) => [turn.instruction, turn.attachments]), [instruction, context.attachments]];
@@ -175,7 +189,10 @@ export function buildMessages(settings, context, edits = [], now = new Date()) {
     const blanks = i ? open(turns[i - 1].result) : [];
     const fill = blanks.length ? `<to_fill>\n${safe(blanks.join('\n'))}\n</to_fill>\n\n` : '';
     // Files alone, after the first version, ask for them to be used.
-    const asked = text.trim() || (i && files.length ? ATTACHED : fallback);
+    let asked = text.trim() || (i && files.length ? ATTACHED : fallback);
+    // The writer's sign-off goes with the first request, where it is followed best.
+    const signoff = settings.signoff?.trim();
+    if (!i && signoff) asked = `${asked}\n\nEnd it with the sign-off "${signoff}", in place of any other, such as a template's.`;
     return { text: `${fill}<instruction>\n${safe(asked)}\n</instruction>`, files };
   });
 
@@ -215,10 +232,10 @@ export const ATTACHED = 'Use what I attached.';
 export const REPLACE_DRAFT = "This draft may not be mine. Choose from <templates> by the situation, as for an empty draft. If one fits, write my reply in its structure instead of polishing: its parts, opening, ask and closing replace the draft's, and the draft gives only facts, such as names, companies and signals.";
 
 // Added to the reply request when templates are offered: "briefly" must not cut a template's parts.
-export const IN_TEMPLATE = "If a template fits, write it in that structure with all its parts, even ones I still have to fill in. Choose it by what the message agrees to or asks me to do, not by a question it also asks. That question is answered in one sentence right after the greeting, and then the template goes on, even when its first line starts with the greeting: split them.";
+export const IN_TEMPLATE = "If a template fits, write it in that structure with all its parts, even ones I still have to fill in. Choose it by what the message agrees to or asks me to do, not by a question it also asks. That question is answered in one sentence right after the greeting, and then the template goes on, even when its first line starts with the greeting: split them. A correction or pushback is answered the same way, saying what I changed.";
 
-// Added to every suggested reply: a question gets its answer before anything else.
-export const ANSWER_FIRST = 'If the latest message asks me something, answer it in the first sentence after the greeting, then go on.';
+// Added to a suggested reply without templates: a question or objection is answered first.
+export const ANSWER_FIRST = 'If the latest message asks me something or objects, answer it in the first sentence after the greeting, then go on.';
 
 // A message with files: their text goes in first, then the message, then
 // images and PDFs as parts of their own. Without images or PDFs it stays text.

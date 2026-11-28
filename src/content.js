@@ -38,13 +38,15 @@ const CSS = `
 /* With a result, the panel is short and wide: asking on the left, the email on the right. */
 .card.split { flex-direction: row; max-height: min(340px, 70vh); }
 .card.split .side { flex: 0 0 min(480px, 42%); overflow-y: auto; border-right: 1px solid var(--line); scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
-.card.split .out { border-top: 0; }
+.card.split .out { border-top: 0; padding-right: 50px; }
 @media (max-width: 760px) {
   .card.split { flex-direction: column; max-height: 76vh; }
   .card.split .side { flex: none; overflow: visible; border-right: 0; }
-  .card.split .out { border-top: 1px solid var(--line); }
+  .card.split .out { border-top: 1px solid var(--line); padding-right: 18px; }
 }
-.top { display: flex; align-items: flex-start; gap: 4px; padding: 13px 10px 12px 16px; }
+.top { display: flex; align-items: flex-start; gap: 4px; padding: 13px 48px 12px 16px; }
+/* Close sits in the panel's own corner, also when the panel splits in two. */
+button.icon.close { position: absolute; top: 11px; right: 8px; z-index: 1; width: 32px; height: 32px; border-radius: 8px; }
 /* The top and bottom bars move the panel. */
 .top, .foot { cursor: grab; touch-action: none; }
 .card.moving, .card.moving * { cursor: grabbing; user-select: none; }
@@ -641,7 +643,7 @@ function openPanel(body = findBody()) {
   }
 
   const top = el('div', { className: 'top' });
-  top.append(mark, el('slot', { name: 'input' }), attachButton, micButton, optionsButton, closeButton, picker);
+  top.append(mark, el('slot', { name: 'input' }), attachButton, micButton, optionsButton, picker);
   const foot = el('div', { className: 'foot' });
   foot.append(hint, meta, second, primary);
   const card = el('div', { className: 'card' });
@@ -652,7 +654,8 @@ function openPanel(body = findBody()) {
   side.append(top, files, chips, notice, note);
   const result = el('div', { className: 'result' });
   result.append(out, foot);
-  card.append(side, result);
+  closeButton.classList.add('close');
+  card.append(side, result, closeButton);
   const shadow = host.attachShadow({ mode: 'open' });
   shadow.append(el('style', { textContent: CSS }), card);
 
